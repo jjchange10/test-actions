@@ -2,7 +2,8 @@
   "packages": {
     "modules": {
       "release-type": "simple",
-      "include-component-in-tag": false
+      "include-component-in-tag": false,
+      "skip-github-release": true
     }
   }
 }
