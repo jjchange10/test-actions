@@ -1,7 +1,7 @@
 {
   "packages": {
     "modules": {
-      "release-type": "terraform-module",
+      "release-type": "simple",
       "include-component-in-tag": false
     }
   }
