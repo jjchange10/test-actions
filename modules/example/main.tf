@@ -1,5 +1,5 @@
 resource "null_resource" "example" {
   triggers = {
-    value = "test-release-please-v2"
+    value = "test-auto-tag-v2"
   }
 }
