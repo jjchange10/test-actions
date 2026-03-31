@@ -1,5 +1,5 @@
 resource "null_resource" "example" {
   triggers = {
-    value = "test"
+    value = "test-minor-bump"
   }
 }
