@@ -1,5 +1,5 @@
 resource "null_resource" "apps" {
   triggers = {
-    value = "test-appstest"
+    value = "test-apps-release-notes"
   }
 }
