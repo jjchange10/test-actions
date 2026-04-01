@@ -22,15 +22,10 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Install semantic-release-monorepo
-        run: npm install -g semantic-release-monorepo
-
       - uses: cycjimmy/semantic-release-action@v4
         with:
           working_directory: modules/${{ matrix.module }}
           extra_plugins: |
             conventional-changelog-conventionalcommits
-            @semantic-release/changelog
-            semantic-release-monorepo
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
