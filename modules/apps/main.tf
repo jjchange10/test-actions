@@ -1,5 +1,5 @@
 resource "null_resource" "apps" {
   triggers = {
-    value = "test-live-release"
+    value = "test-commit-link"
   }
 }

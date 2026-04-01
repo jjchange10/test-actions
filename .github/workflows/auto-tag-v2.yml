@@ -83,8 +83,9 @@ jobs:
           * ${SUBJECT} by @${AUTHOR} in ${PR_URL}"
               else
                 AUTHOR=$(git log -1 --pretty=format:"%an" "$sha")
+                COMMIT_URL="https://github.com/${{ github.repository }}/commit/${sha}"
                 BODY="${BODY}
-          * ${SUBJECT} by ${AUTHOR}"
+          * ${SUBJECT} by ${AUTHOR} in ${COMMIT_URL}"
               fi
               HAS_CHANGES=true
             done
