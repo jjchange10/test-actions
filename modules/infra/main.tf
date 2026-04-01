@@ -1,5 +1,5 @@
 resource "null_resource" "infra" {
   triggers = {
-    value = "test-pr-merge-release"
+    value = "test-dry-run-both"
   }
 }
