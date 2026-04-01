@@ -13,45 +13,67 @@ jobs:
   changes:
     runs-on: ubuntu-latest
     outputs:
-      apps: ${{ steps.filter.outputs.apps }}
-      infra: ${{ steps.filter.outputs.infra }}
+      # minor 対象ディレクトリを追加する場合は minor のフィルタにパスを追記する
+      minor: ${{ steps.filter.outputs.minor }}
+      changed_files: ${{ steps.changed_files.outputs.all_changed_files }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Get changed files
+        id: changed_files
+        uses: tj-actions/changed-files@24d32ffd492484c1d75e0c0b894501ddb9d30d62  # v47
+
       - uses: dorny/paths-filter@v3
         id: filter
         with:
           filters: |
-            apps:
-              - 'modules/apps/**'
-            infra:
+            minor:
               - 'modules/infra/**'
+              - 'modules/common/**'
 
-  release-apps:
+  release:
     needs: changes
-    if: needs.changes.outputs.apps == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: Generate release notes for apps
+      - name: Generate release notes
         id: notes
         run: |
           PREV_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
-          if [ -z "$PREV_TAG" ]; then
-            COMMITS=$(git log --pretty=format:"- %s (%h)" -- modules/apps/)
-          else
-            COMMITS=$(git log "${PREV_TAG}..HEAD" --pretty=format:"- %s (%h)" -- modules/apps/)
+
+          CHANGED_MODULES=$(echo "${{ needs.changes.outputs.changed_files }}" | tr ' ' '\n' | grep '^modules/' | cut -d'/' -f2 | sort -u)
+
+          BODY=""
+          for module in $CHANGED_MODULES; do
+            if [ -z "$PREV_TAG" ]; then
+              COMMITS=$(git log --pretty=format:"- %s (%h)" -- "modules/${module}/")
+            else
+              COMMITS=$(git log "${PREV_TAG}..HEAD" --pretty=format:"- %s (%h)" -- "modules/${module}/")
+            fi
+            if [ -n "$COMMITS" ]; then
+              if [ -n "$BODY" ]; then
+                BODY="${BODY}
+
+          "
+              fi
+              BODY="${BODY}## Changes in modules/${module}
+
+          ${COMMITS}"
+            fi
+          done
+
+          if [ -z "$BODY" ]; then
+            BODY="No notable changes"
           fi
-          if [ -z "$COMMITS" ]; then
-            COMMITS="- No notable changes in modules/apps"
-          fi
+
           {
             echo "body<<EOF"
-            echo "## Changes in modules/apps"
-            echo ""
-            echo "$COMMITS"
+            echo "$BODY"
             echo "EOF"
           } >> "$GITHUB_OUTPUT"
 
@@ -59,51 +81,7 @@ jobs:
         id: tag
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          DEFAULT_BUMP: patch
-          WITH_V: true
-
-      - uses: softprops/action-gh-release@v2
-        with:
-          tag_name: ${{ steps.tag.outputs.new_tag }}
-          name: ${{ steps.tag.outputs.new_tag }}
-          body: ${{ steps.notes.outputs.body }}
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-  release-infra:
-    needs: changes
-    if: needs.changes.outputs.infra == 'true'
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Generate release notes for infra
-        id: notes
-        run: |
-          PREV_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
-          if [ -z "$PREV_TAG" ]; then
-            COMMITS=$(git log --pretty=format:"- %s (%h)" -- modules/infra/)
-          else
-            COMMITS=$(git log "${PREV_TAG}..HEAD" --pretty=format:"- %s (%h)" -- modules/infra/)
-          fi
-          if [ -z "$COMMITS" ]; then
-            COMMITS="- No notable changes in modules/infra"
-          fi
-          {
-            echo "body<<EOF"
-            echo "## Changes in modules/infra"
-            echo ""
-            echo "$COMMITS"
-            echo "EOF"
-          } >> "$GITHUB_OUTPUT"
-
-      - uses: anothrNick/github-tag-action@v1
-        id: tag
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          DEFAULT_BUMP: minor
+          DEFAULT_BUMP: ${{ needs.changes.outputs.minor == 'true' && 'minor' || 'patch' }}
           WITH_V: true
 
       - uses: softprops/action-gh-release@v2
