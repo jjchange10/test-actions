@@ -14,6 +14,9 @@ permissions:
 jobs:
   release:
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        module: [example, example2]
     steps:
       - uses: actions/checkout@v4
         with:
@@ -21,8 +24,10 @@ jobs:
 
       - uses: cycjimmy/semantic-release-action@v4
         with:
+          working_directory: modules/${{ matrix.module }}
           extra_plugins: |
             conventional-changelog-conventionalcommits
             @semantic-release/changelog
+            semantic-release-monorepo
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
