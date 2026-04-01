@@ -1,5 +1,5 @@
 resource "null_resource" "apps" {
   triggers = {
-    value = "test-node24-update"
+    value = "test-release-notes-format"
   }
 }
