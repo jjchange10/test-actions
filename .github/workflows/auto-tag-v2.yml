@@ -21,9 +21,14 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Get changed files
+      - name: Get changed modules
         id: changed_files
         uses: tj-actions/changed-files@24d32ffd492484c1d75e0c0b894501ddb9d30d62  # v47
+        with:
+          dir_names: true
+          dir_names_max_depth: 2
+          files: |
+            modules/**
 
       - uses: dorny/paths-filter@v3
         id: filter
@@ -44,16 +49,16 @@ jobs:
       - name: Generate release notes
         id: notes
         run: |
-          PREV_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
+          PREV_TAG=$(git describe --tags --abbrev=0 --match "v*" 2>/dev/null || echo "")
 
-          CHANGED_MODULES=$(echo "${{ needs.changes.outputs.changed_files }}" | tr ' ' '\n' | grep '^modules/' | cut -d'/' -f2 | sort -u)
+          CHANGED_MODULES=$(echo "${{ needs.changes.outputs.changed_files }}" | tr ' ' '\n' | sort -u)
 
           BODY=""
-          for module in $CHANGED_MODULES; do
+          for module_path in $CHANGED_MODULES; do
             if [ -z "$PREV_TAG" ]; then
-              COMMITS=$(git log --pretty=format:"- %s (%h)" -- "modules/${module}/")
+              COMMITS=$(git log --pretty=format:"- %s (%h)" -- "${module_path}/")
             else
-              COMMITS=$(git log "${PREV_TAG}..HEAD" --pretty=format:"- %s (%h)" -- "modules/${module}/")
+              COMMITS=$(git log "${PREV_TAG}..HEAD" --pretty=format:"- %s (%h)" -- "${module_path}/")
             fi
             if [ -n "$COMMITS" ]; then
               if [ -n "$BODY" ]; then
@@ -61,7 +66,7 @@ jobs:
 
           "
               fi
-              BODY="${BODY}## Changes in modules/${module}
+              BODY="${BODY}## Changes in ${module_path}
 
           ${COMMITS}"
             fi
@@ -83,11 +88,26 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           DEFAULT_BUMP: ${{ needs.changes.outputs.minor == 'true' && 'minor' || 'patch' }}
           WITH_V: true
+          DRY_RUN: true
 
-      - uses: softprops/action-gh-release@v2
-        with:
-          tag_name: ${{ steps.tag.outputs.new_tag }}
-          name: ${{ steps.tag.outputs.new_tag }}
-          body: ${{ steps.notes.outputs.body }}
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Dry run summary
+        run: |
+          echo "=== Bump Type ==="
+          echo "${{ needs.changes.outputs.minor == 'true' && 'minor' || 'patch' }}"
+          echo ""
+          echo "=== Changed Modules ==="
+          echo "${{ needs.changes.outputs.changed_files }}"
+          echo ""
+          echo "=== New Tag ==="
+          echo "${{ steps.tag.outputs.new_tag }}"
+          echo ""
+          echo "=== Release Notes ==="
+          echo "${{ steps.notes.outputs.body }}"
+
+      # - uses: softprops/action-gh-release@v2
+      #   with:
+      #     tag_name: ${{ steps.tag.outputs.new_tag }}
+      #     name: ${{ steps.tag.outputs.new_tag }}
+      #     body: ${{ steps.notes.outputs.body }}
+      #   env:
+      #     GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
