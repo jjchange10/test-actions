@@ -1,5 +1,5 @@
 resource "null_resource" "apps" {
   triggers = {
-    value = "test-dry-run"
+    value = "test-node24-update"
   }
 }
