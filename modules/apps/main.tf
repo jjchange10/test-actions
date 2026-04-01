@@ -1,5 +1,5 @@
 resource "null_resource" "apps" {
   triggers = {
-    value = "test-both-apps"
+    value = "test-major-bump"
   }
 }
