@@ -1,5 +1,5 @@
 resource "null_resource" "apps" {
   triggers = {
-    value = "test-dry-run-both"
+    value = "test-dry-run-apps-only"
   }
 }
