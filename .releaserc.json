@@ -8,10 +8,20 @@
       "preset": "conventionalcommits",
       "presetConfig": {
         "types": [
-          { "type": "feat", "section": "Features" },
-          { "type": "fix", "section": "Bug Fixes" },
-          { "type": "refactor", "section": "Refactoring", "hidden": false }
+          { "type": "feat", "section": "🚀 新機能" },
+          { "type": "fix", "section": "🐛 バグ修正" },
+          { "type": "refactor", "section": "♻️ リファクタリング", "hidden": false },
+          { "type": "perf", "section": "⚡ パフォーマンス改善", "hidden": false },
+          { "type": "docs", "section": "📝 ドキュメント", "hidden": false },
+          { "type": "chore", "hidden": true },
+          { "type": "ci", "hidden": true },
+          { "type": "test", "hidden": true },
+          { "type": "style", "hidden": true },
+          { "type": "build", "hidden": true }
         ]
+      },
+      "writerOpts": {
+        "commitPartial": "- {{subject}} ({{shortHash}}){{#if authorName}} by @{{authorName}}{{/if}}\n"
       }
     }],
     "@semantic-release/changelog",
