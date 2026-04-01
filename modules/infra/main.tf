@@ -1,5 +1,5 @@
 resource "null_resource" "infra" {
   triggers = {
-    value = "test-infra"
+    value = "test-infra-release-notes"
   }
 }
