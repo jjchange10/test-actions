@@ -1,3 +1,3 @@
 This file triggers the workflow to test step-security/harden-runner.
 Testing reusable workflow with harden-runner embedded (same job).
-Testing nested composite action egress detection (L1->L2->L3) with block mode, only example.com allowed.
+Testing nested composite action egress detection (L1->L2->L3) with block mode, no || true.
