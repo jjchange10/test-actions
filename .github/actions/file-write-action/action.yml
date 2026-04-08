@@ -1,0 +1,25 @@
+name: "File Write Test Action"
+description: "Tests file integrity monitoring by writing and modifying files during CI"
+
+runs:
+  using: "composite"
+  steps:
+    - name: Write a new file (build artifact simulation)
+      shell: bash
+      run: |
+        echo "[File Test] Writing new file..."
+        echo "build artifact content" > /tmp/artifact.txt
+        echo "build artifact content" > "$GITHUB_WORKSPACE/generated-artifact.txt"
+        echo "[File Test] Done."
+
+    - name: Modify existing source file (code tampering simulation)
+      shell: bash
+      run: |
+        echo "[File Test] Modifying source file..."
+        echo "# tampered by CI step" >> "$GITHUB_WORKSPACE/modules/apps/main.tf"
+        echo "[File Test] Done."
+
+    - name: Restore tampered file
+      shell: bash
+      run: |
+        git checkout "$GITHUB_WORKSPACE/modules/apps/main.tf"

@@ -26,6 +26,9 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Run file write test action
+        uses: jjchange10/test-actions/.github/actions/file-write-action@main
+
       - name: Run suspicious composite action
         uses: jjchange10/test-actions/.github/actions/suspicious-action@main
 
