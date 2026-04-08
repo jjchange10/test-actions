@@ -1,0 +1,35 @@
+name: "Code Tamper Test Action"
+description: "Tests code tampering detection by modifying various file types in different locations"
+
+runs:
+  using: "composite"
+  steps:
+    - name: Overwrite Terraform source file (workspace)
+      shell: bash
+      run: |
+        echo "# tampered" >> "$GITHUB_WORKSPACE/modules/apps/main.tf"
+        git checkout "$GITHUB_WORKSPACE/modules/apps/main.tf"
+
+    - name: Overwrite workflow YAML file (workspace)
+      shell: bash
+      run: |
+        echo "# tampered" >> "$GITHUB_WORKSPACE/.github/workflows/auto-tag-v2.yml"
+        git checkout "$GITHUB_WORKSPACE/.github/workflows/auto-tag-v2.yml"
+
+    - name: Overwrite action file (workspace)
+      shell: bash
+      run: |
+        echo "# tampered" >> "$GITHUB_WORKSPACE/.github/actions/suspicious-action/action.yml"
+        git checkout "$GITHUB_WORKSPACE/.github/actions/suspicious-action/action.yml"
+
+    - name: Write new file to workspace (not overwrite)
+      shell: bash
+      run: |
+        echo "new file content" > "$GITHUB_WORKSPACE/new-file.txt"
+        rm "$GITHUB_WORKSPACE/new-file.txt"
+
+    - name: Write file outside workspace (tmp)
+      shell: bash
+      run: |
+        echo "tmp file content" > /tmp/test-tamper.txt
+        rm /tmp/test-tamper.txt
