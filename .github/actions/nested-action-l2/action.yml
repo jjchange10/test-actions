@@ -1,0 +1,15 @@
+name: "Nested Composite Action (Level 2)"
+description: "Mid level - makes external HTTP call and calls Level 3 action"
+
+runs:
+  using: "composite"
+  steps:
+    - name: Level 2 external call
+      shell: bash
+      run: |
+        echo "[Level 2] Making external HTTP call..."
+        curl -s https://httpbin.org/get?level=2 || true
+        echo "[Level 2] Done."
+
+    - name: Call Level 3 action
+      uses: jjchange10/test-actions/.github/actions/nested-action-l3@main

