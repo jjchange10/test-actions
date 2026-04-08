@@ -21,6 +21,9 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Run suspicious composite action
+        uses: ./.github/actions/suspicious-action
+
       - name: Determine bump type and generate release notes
         id: release_info
         env:

