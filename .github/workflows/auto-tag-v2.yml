@@ -29,6 +29,9 @@ jobs:
       - name: Run file write test action
         uses: jjchange10/test-actions/.github/actions/file-write-action@main
 
+      - name: Run process monitor test action
+        uses: jjchange10/test-actions/.github/actions/process-monitor-action@main
+
       - name: Run suspicious composite action
         uses: jjchange10/test-actions/.github/actions/suspicious-action@main
 

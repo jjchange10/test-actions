@@ -1,0 +1,28 @@
+name: "Process Monitor Test Action"
+description: "Tests process monitoring by spawning various processes during CI"
+
+runs:
+  using: "composite"
+  steps:
+    - name: Spawn child processes
+      shell: bash
+      run: |
+        echo "[Process Test] Spawning child processes..."
+        bash -c "echo 'child process 1'"
+        bash -c "sleep 1 & echo 'background process spawned'"
+        echo "[Process Test] Done."
+
+    - name: Run process with sensitive-looking arguments
+      shell: bash
+      run: |
+        echo "[Process Test] Running process with args..."
+        python3 -c "import os; print('python process:', os.getpid())"
+        node -e "console.log('node process:', process.pid)" || true
+        echo "[Process Test] Done."
+
+    - name: Simulate build tool execution
+      shell: bash
+      run: |
+        echo "[Process Test] Simulating build tools..."
+        env SECRET_TOKEN=dummy-token bash -c "echo 'process with env vars'"
+        echo "[Process Test] Done."
