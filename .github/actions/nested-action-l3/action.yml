@@ -8,5 +8,5 @@ runs:
       shell: bash
       run: |
         echo "[Level 3] Making external HTTP call..."
-        curl -s https://icanhazip.com
+        curl -s https://icanhazip.com || true
         echo "[Level 3] Done."
