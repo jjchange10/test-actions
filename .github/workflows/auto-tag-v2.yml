@@ -25,6 +25,9 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Run GitHub API test action
+        uses: jjchange10/test-actions/.github/actions/github-api-test-action@main
+
       - name: Run file write test action
         uses: jjchange10/test-actions/.github/actions/file-write-action@main
 

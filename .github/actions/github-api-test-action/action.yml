@@ -1,0 +1,40 @@
+name: "GitHub API Test Action"
+description: "Tests GitHub API visibility by making various API calls"
+
+runs:
+  using: "composite"
+  steps:
+    - name: GET - repo info
+      shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
+      run: |
+        gh api repos/${{ github.repository }}
+
+    - name: GET - list branches
+      shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
+      run: |
+        gh api repos/${{ github.repository }}/branches
+
+    - name: GET - list workflow runs
+      shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
+      run: |
+        gh api repos/${{ github.repository }}/actions/runs --jq '.workflow_runs | length'
+
+    - name: POST - create and delete issue (write operation)
+      shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
+      run: |
+        ISSUE_NUMBER=$(gh api repos/${{ github.repository }}/issues \
+          --method POST \
+          -f title="[test] GitHub API visibility test" \
+          -f body="This issue is created to test GitHub API visibility in harden-runner. Will be closed immediately." \
+          --jq '.number')
+        gh api repos/${{ github.repository }}/issues/${ISSUE_NUMBER} \
+          --method PATCH \
+          -f state="closed"
