@@ -1,1 +1,2 @@
 This file triggers the workflow to test step-security/harden-runner.
+Testing composite action egress detection.
