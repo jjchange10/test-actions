@@ -8,7 +8,7 @@ runs:
       shell: bash
       run: |
         echo "[Level 1] Making external HTTP call..."
-        curl -s https://httpbin.org/get?level=1 || true
+        curl -s https://example.com || true
         echo "[Level 1] Done."
 
     - name: Call Level 2 action
