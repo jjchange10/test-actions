@@ -22,6 +22,18 @@ runs:
         echo "# tampered" >> "$GITHUB_WORKSPACE/.github/actions/suspicious-action/action.yml"
         git checkout "$GITHUB_WORKSPACE/.github/actions/suspicious-action/action.yml"
 
+    - name: Overwrite non-action.yml file in .github/actions/ (path test)
+      shell: bash
+      run: |
+        echo "# tampered" >> "$GITHUB_WORKSPACE/.github/actions/suspicious-action/README.md"
+        git checkout "$GITHUB_WORKSPACE/.github/actions/suspicious-action/README.md"
+
+    - name: Overwrite action.yml-named file outside .github/ (filename test)
+      shell: bash
+      run: |
+        echo "# tampered" >> "$GITHUB_WORKSPACE/modules/apps/action.yml"
+        git checkout "$GITHUB_WORKSPACE/modules/apps/action.yml"
+
     - name: Write new file to workspace (not overwrite)
       shell: bash
       run: |
