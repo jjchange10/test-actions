@@ -1,3 +1,3 @@
 This file triggers the workflow to test step-security/harden-runner.
 Testing reusable workflow with harden-runner embedded (same job).
-Testing GitHub API visibility: add issues:write permission for POST test.
+Testing policy store with policy: new.
