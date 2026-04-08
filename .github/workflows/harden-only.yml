@@ -1,0 +1,21 @@
+name: Harden Runner Only (Managed by Security Team)
+
+on:
+  workflow_call:
+    inputs:
+      egress-policy:
+        description: "Egress policy: audit or block"
+        type: string
+        default: audit
+
+jobs:
+  harden:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: step-security/harden-runner@0634a2670c59f64b4a01f0f96f84700a4088b9f0  # v2.12.0
+        with:
+          egress-policy: ${{ inputs.egress-policy }}
+          allowed-endpoints: >
+            github.com:443
+            api.github.com:443
+            results-receiver.actions.githubusercontent.com:443

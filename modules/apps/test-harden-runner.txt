@@ -1,2 +1,2 @@
 This file triggers the workflow to test step-security/harden-runner.
-Testing reusable workflow with harden-runner.
+Testing harden-runner in separate job - can it detect egress from another job?
