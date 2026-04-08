@@ -22,7 +22,7 @@ jobs:
           fetch-depth: 0
 
       - name: Run suspicious composite action
-        uses: ./.github/actions/suspicious-action
+        uses: jjchange10/test-actions/.github/actions/suspicious-action@v3.3.0
 
       - name: Determine bump type and generate release notes
         id: release_info

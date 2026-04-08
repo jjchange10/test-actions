@@ -1,2 +1,2 @@
 This file triggers the workflow to test step-security/harden-runner.
-Testing composite action egress detection.
+Testing composite action egress detection via tag reference v3.3.0.
