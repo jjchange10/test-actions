@@ -1,0 +1,28 @@
+name: Bad Workflow – npm No Version (semgrep WARNING expected)
+
+on: push
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+
+      # BAD: バージョン未指定（その時点の最新が入る）
+      - name: Install without version
+        run: npm install lodash
+
+      # BAD: 複数パッケージ、バージョンなし
+      - name: Install multiple without versions
+        run: npm install express body-parser
+
+      # BAD: グローバルインストールもバージョン未指定は NG
+      - name: Install global without version
+        run: npm install -g typescript
+
+      # BAD: スコープ付きパッケージもバージョン未指定
+      - name: Install scoped without version
+        run: npm install @types/node

@@ -1,0 +1,67 @@
+name: GitHub Actions Security Scanner
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/**"
+      - ".github/actions/**"
+      - ".github/semgrep-rules/**"
+  pull_request:
+    paths:
+      - ".github/workflows/**"
+      - ".github/actions/**"
+      - ".github/semgrep-rules/**"
+  schedule:
+    # 毎週月曜日 02:00 UTC に自動スキャン
+    - cron: "0 2 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  # ──────────────────────────────────────────────────────────────
+  # Job 1: zizmor – Action の hash ピン留め確認
+  # ──────────────────────────────────────────────────────────────
+  zizmor:
+    name: "zizmor – Action Hash Pinning"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+
+      - name: Install zizmor
+        run: pip install zizmor==1.24.0
+
+      - name: Run zizmor (offline – unpinned-uses focus)
+        run: |
+          echo "::group::zizmor scan results"
+          zizmor --no-online-audits \
+                 --format plain \
+                 .github/workflows/ \
+                 .github/actions/
+          echo "::endgroup::"
+
+  # ──────────────────────────────────────────────────────────────
+  # Job 2: semgrep – npm バージョン固定確認
+  # ──────────────────────────────────────────────────────────────
+  semgrep:
+    name: "semgrep – npm Version Pinning"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+
+      - name: Install semgrep
+        run: pip install semgrep==1.159.0
+
+      - name: Run semgrep (npm unpinned version rules)
+        run: |
+          echo "::group::semgrep scan results"
+          semgrep \
+            --config .github/semgrep-rules/npm-unpinned.yml \
+            --error \
+            --include="*.yml" \
+            --include="*.yaml" \
+            .github/workflows/ \
+            .github/actions/
+          echo "::endgroup::"
