@@ -9,6 +9,7 @@ set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 FIXTURES_DIR="${REPO_ROOT}/tests/fixtures"
 SEMGREP_RULES="${REPO_ROOT}/.github/semgrep-rules/npm-unpinned.yml"
+REPOS_CONFIG="${REPO_ROOT}/.github/scanner-repos.json"
 
 PASS=0
 FAIL=0
@@ -26,13 +27,18 @@ log_info() { echo -e "${YELLOW}[INFO]${NC} $*"; }
 # ─── ツールの確認 ───────────────────────────────────────────
 check_tools() {
   local missing=0
-  for tool in zizmor semgrep; do
+  for tool in zizmor semgrep jq; do
     if ! command -v "${tool}" >/dev/null 2>&1; then
-      log_info "${tool} が見つかりません。pip でインストールします..."
-      pip install "${tool}" --quiet || {
-        echo -e "${RED}[ERROR]${NC} ${tool} のインストールに失敗しました"
+      if [[ "${tool}" == "jq" ]]; then
+        echo -e "${RED}[ERROR]${NC} jq が見つかりません。apt install jq などでインストールしてください"
         missing=$((missing + 1))
-      }
+      else
+        log_info "${tool} が見つかりません。pip でインストールします..."
+        pip install "${tool}" --quiet || {
+          echo -e "${RED}[ERROR]${NC} ${tool} のインストールに失敗しました"
+          missing=$((missing + 1))
+        }
+      fi
     fi
   done
   [ "${missing}" -eq 0 ] || { echo "必要なツールのインストールに失敗しました"; exit 1; }
@@ -115,6 +121,45 @@ main() {
       --error \
       --include="*.yml" \
       "${FIXTURES_DIR}/good-workflow.yml"
+
+  echo ""
+
+  # ── マルチリポジトリ設定の検証 ───────────────────────────
+  echo "── scanner-repos.json: マルチリポジトリ設定 ──"
+
+  # JSON として有効か
+  if jq empty "${REPOS_CONFIG}" 2>/dev/null; then
+    log_pass "scanner-repos.json – 有効な JSON フォーマット"
+  else
+    log_fail "scanner-repos.json – JSON パースエラー"
+  fi
+
+  # .repos が配列として存在するか
+  if jq -e '.repos | arrays' "${REPOS_CONFIG}" >/dev/null 2>&1; then
+    log_pass "scanner-repos.json – .repos 配列が存在します"
+  else
+    log_fail "scanner-repos.json – .repos 配列が見つかりません"
+  fi
+
+  # .repos に最低 1 件のエントリがあるか
+  count=$(jq '.repos | length' "${REPOS_CONFIG}")
+  if [ "${count}" -gt 0 ]; then
+    log_pass "scanner-repos.json – ${count} 件のリポジトリが登録済み"
+    jq -r '.repos[]' "${REPOS_CONFIG}" | while read -r repo; do
+      log_info "  対象: ${repo}"
+    done
+  else
+    log_fail "scanner-repos.json – リポジトリが 1 件も登録されていません"
+  fi
+
+  # matrix JSON の生成が正しく動くか
+  matrix=$(jq -c '{repo: .repos}' "${REPOS_CONFIG}" 2>/dev/null)
+  expected_count=$(echo "${matrix}" | jq '.repo | length')
+  if [ "${expected_count}" -eq "${count}" ]; then
+    log_pass "scanner-repos.json – matrix 生成: ${expected_count} エントリ (${matrix})"
+  else
+    log_fail "scanner-repos.json – matrix 生成結果がリポジトリ数と一致しません"
+  fi
 
   echo ""
 
