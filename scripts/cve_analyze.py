@@ -421,13 +421,28 @@ def build_user_message(
 
 # ── Claude API ─────────────────────────────────────────────────────────────────
 
-def run_claude_analysis(system_prompt: str, user_message: str, api_key: str) -> str:
-    """Call Claude claude-sonnet and return the generated analysis text."""
-    client = anthropic.Anthropic(api_key=api_key)
-    print("[Claude] Sending analysis request to claude-sonnet-4-6…")
+def run_claude_analysis(system_prompt: str, user_message: str) -> str:
+    """Call Claude via Vertex AI and return the generated analysis text.
+
+    Authentication uses Application Default Credentials (ADC).
+    Required env vars:
+      ANTHROPIC_VERTEX_PROJECT_ID  — GCP project ID
+      ANTHROPIC_VERTEX_REGION      — e.g. us-east5 (default: us-east5)
+    """
+    project_id = os.environ.get("ANTHROPIC_VERTEX_PROJECT_ID", "")
+    region     = os.environ.get("ANTHROPIC_VERTEX_REGION", "us-east5")
+
+    if not project_id:
+        raise ValueError(
+            "ANTHROPIC_VERTEX_PROJECT_ID environment variable is required for Vertex AI"
+        )
+
+    client = anthropic.AnthropicVertex(project_id=project_id, region=region)
+    print(f"[Claude] Sending analysis request via Vertex AI "
+          f"(project={project_id}, region={region})…")
 
     message = client.messages.create(
-        model="claude-sonnet-4-6",
+        model="claude-sonnet-4-6@20251001",
         max_tokens=8192,
         system=system_prompt,
         messages=[{"role": "user", "content": user_message}],
@@ -467,7 +482,6 @@ def main() -> None:
     target_repo   = os.environ.get("TARGET_REPO", "").strip()
     target_branch = os.environ.get("TARGET_BRANCH", "main").strip()
     github_token  = os.environ.get("GITHUB_TOKEN", "").strip()
-    anthropic_key = os.environ.get("ANTHROPIC_API_KEY", "").strip()
     output_file   = os.environ.get("OUTPUT_FILE", "cve-report.md")
 
     # ── Validation ──────────────────────────────────────────────────────────
@@ -478,8 +492,8 @@ def main() -> None:
         errors.append(f"Invalid CVE ID format: '{cve_id}' (expected CVE-YYYY-NNNN...)")
     if not target_repo or "/" not in target_repo:
         errors.append("TARGET_REPO must be 'owner/repo'")
-    if not anthropic_key:
-        errors.append("ANTHROPIC_API_KEY is required")
+    if not os.environ.get("ANTHROPIC_VERTEX_PROJECT_ID", ""):
+        errors.append("ANTHROPIC_VERTEX_PROJECT_ID is required (Vertex AI project ID)")
     if errors:
         for e in errors:
             print(f"ERROR: {e}", file=sys.stderr)
@@ -538,7 +552,7 @@ def main() -> None:
     user_message  = build_user_message(
         cve_id, cve_data, osv_data, target_repo, file_contents, affected_packages
     )
-    analysis = run_claude_analysis(system_prompt, user_message, anthropic_key)
+    analysis = run_claude_analysis(system_prompt, user_message)
 
     # ── Write report ─────────────────────────────────────────────────────────
     report = wrap_report(analysis, cve_id, target_repo, list(file_contents.keys()), cve_data)
