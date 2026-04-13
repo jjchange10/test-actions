@@ -9,7 +9,6 @@ set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 FIXTURES_DIR="${REPO_ROOT}/tests/fixtures"
 SEMGREP_RULES="${REPO_ROOT}/.github/semgrep-rules/npm-unpinned.yml"
-REPOS_CONFIG="${REPO_ROOT}/.github/scanner-repos.json"
 
 PASS=0
 FAIL=0
@@ -124,41 +123,48 @@ main() {
 
   echo ""
 
-  # ── マルチリポジトリ設定の検証 ───────────────────────────
-  echo "── scanner-repos.json: マルチリポジトリ設定 ──"
+  # ── gh repo list マトリクス生成パイプラインの検証 ─────────
+  # 実際の API 呼び出しは行わず、gh が返す JSON 形式をモックして
+  # jq パイプラインが正しく matrix を生成することを確認する
+  echo "── gh repo list: matrix 生成パイプライン ──"
 
-  # JSON として有効か
-  if jq empty "${REPOS_CONFIG}" 2>/dev/null; then
-    log_pass "scanner-repos.json – 有効な JSON フォーマット"
+  # gh コマンドの存在確認（ローカルにない場合はスキップ、CI では必須）
+  if command -v gh >/dev/null 2>&1; then
+    log_pass "gh CLI がインストールされています ($(gh --version | head -1))"
+
+    # --no-archived オプションが gh に存在するか確認
+    if gh repo list --help 2>&1 | grep -q -- "--no-archived"; then
+      log_pass "gh repo list / --no-archived オプションが利用可能"
+    else
+      log_fail "gh repo list / --no-archived オプションが見つかりません"
+    fi
   else
-    log_fail "scanner-repos.json – JSON パースエラー"
+    log_info "gh CLI 未インストール – gh オプション確認はスキップ (GitHub Actions ランナーには標準搭載)"
   fi
 
-  # .repos が配列として存在するか
-  if jq -e '.repos | arrays' "${REPOS_CONFIG}" >/dev/null 2>&1; then
-    log_pass "scanner-repos.json – .repos 配列が存在します"
+  # gh repo list が返す JSON 形式をモックして jq パイプラインを検証
+  # ネットワークアクセス不要のため常に実行する
+  mock_gh_output='[
+    {"nameWithOwner":"org/repo-a"},
+    {"nameWithOwner":"org/repo-b"},
+    {"nameWithOwner":"org/repo-c"}
+  ]'
+
+  repos_json=$(echo "${mock_gh_output}" | jq -c '[.[].nameWithOwner]')
+  count=$(echo "${repos_json}" | jq 'length')
+  matrix=$(echo "${repos_json}" | jq -c '{repo: .}')
+  matrix_count=$(echo "${matrix}" | jq '.repo | length')
+
+  if [ "${count}" -eq 3 ]; then
+    log_pass "gh mock / nameWithOwner 抽出: ${count} 件 → ${repos_json}"
   else
-    log_fail "scanner-repos.json – .repos 配列が見つかりません"
+    log_fail "gh mock / nameWithOwner 抽出: 期待 3 件, 実際 ${count} 件"
   fi
 
-  # .repos に最低 1 件のエントリがあるか
-  count=$(jq '.repos | length' "${REPOS_CONFIG}")
-  if [ "${count}" -gt 0 ]; then
-    log_pass "scanner-repos.json – ${count} 件のリポジトリが登録済み"
-    jq -r '.repos[]' "${REPOS_CONFIG}" | while read -r repo; do
-      log_info "  対象: ${repo}"
-    done
+  if [ "${matrix_count}" -eq "${count}" ]; then
+    log_pass "gh mock / matrix 生成: ${matrix_count} エントリ → ${matrix}"
   else
-    log_fail "scanner-repos.json – リポジトリが 1 件も登録されていません"
-  fi
-
-  # matrix JSON の生成が正しく動くか
-  matrix=$(jq -c '{repo: .repos}' "${REPOS_CONFIG}" 2>/dev/null)
-  expected_count=$(echo "${matrix}" | jq '.repo | length')
-  if [ "${expected_count}" -eq "${count}" ]; then
-    log_pass "scanner-repos.json – matrix 生成: ${expected_count} エントリ (${matrix})"
-  else
-    log_fail "scanner-repos.json – matrix 生成結果がリポジトリ数と一致しません"
+    log_fail "gh mock / matrix 生成: エントリ数不一致 (${matrix_count} vs ${count})"
   fi
 
   echo ""

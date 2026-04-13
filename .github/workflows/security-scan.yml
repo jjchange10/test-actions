@@ -7,13 +7,11 @@ on:
       - ".github/workflows/**"
       - ".github/actions/**"
       - ".github/semgrep-rules/**"
-      - ".github/scanner-repos.json"
   pull_request:
     paths:
       - ".github/workflows/**"
       - ".github/actions/**"
       - ".github/semgrep-rules/**"
-      - ".github/scanner-repos.json"
   schedule:
     # 毎週月曜日 02:00 UTC に自動スキャン
     - cron: "0 2 * * 1"
@@ -24,31 +22,40 @@ permissions:
 
 jobs:
   # ──────────────────────────────────────────────────────────────
-  # Job 1: scanner-repos.json からスキャン対象リポジトリを読み込み
-  #         matrix を動的生成する
+  # Job 1: gh repo list でスキャン対象リポジトリを動的取得し
+  #         matrix を生成する
+  #
+  # 使用するトークンについて:
+  #   - パブリックリポジトリのみ: GITHUB_TOKEN で動作
+  #   - プライベートリポジトリを含む場合: SCAN_TOKEN (PAT) が必要
+  #     必要なスコープ: repo, read:org
   # ──────────────────────────────────────────────────────────────
   setup:
-    name: "Load Target Repositories"
+    name: "Fetch Target Repositories"
     runs-on: ubuntu-latest
     outputs:
-      matrix: ${{ steps.load-repos.outputs.matrix }}
-      count: ${{ steps.load-repos.outputs.count }}
+      matrix: ${{ steps.fetch-repos.outputs.matrix }}
+      count: ${{ steps.fetch-repos.outputs.count }}
     steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
-        with:
-          persist-credentials: false
-
-      - name: Load repos and generate matrix
-        id: load-repos
+      - name: Fetch repository list via gh
+        id: fetch-repos
+        env:
+          GH_TOKEN: ${{ secrets.SCAN_TOKEN || secrets.GITHUB_TOKEN }}
         run: |
-          count=$(jq '.repos | length' .github/scanner-repos.json)
-          matrix=$(jq -c '{repo: .repos}' .github/scanner-repos.json)
+          repos_json=$(gh repo list "${{ github.repository_owner }}" \
+            --json nameWithOwner \
+            --no-archived \
+            --limit 1000 \
+            | jq -c '[.[].nameWithOwner]')
+
+          count=$(echo "${repos_json}" | jq 'length')
+          matrix=$(echo "${repos_json}" | jq -c '{repo: .}')
 
           echo "count=${count}" >> "$GITHUB_OUTPUT"
           echo "matrix=${matrix}" >> "$GITHUB_OUTPUT"
 
-          echo "スキャン対象リポジトリ一覧 (${count}件):"
-          jq -r '.repos[]' .github/scanner-repos.json | sed 's/^/  - /'
+          echo "スキャン対象リポジトリ (${count}件):"
+          echo "${repos_json}" | jq -r '.[]' | sed 's/^/  - /'
 
   # ──────────────────────────────────────────────────────────────
   # Job 2: 各リポジトリに対して zizmor + semgrep を並列実行
@@ -75,8 +82,6 @@ jobs:
           path: scanner
 
       # スキャン対象リポジトリを target/ に配置
-      # プライベートリポジトリの場合は SCAN_TOKEN シークレット（対象リポジトリへの
-      # contents: read 権限を持つ PAT）が必要。パブリックリポジトリは不要。
       - name: Checkout target repository (${{ matrix.repo }})
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
         with:
