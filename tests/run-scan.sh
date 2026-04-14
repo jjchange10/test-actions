@@ -83,12 +83,14 @@ main() {
   expect_fail \
     "zizmor / bad-unpinned-actions.yml (タグ指定 → FAIL 期待)" \
     zizmor --no-online-audits \
+           --config "${REPO_ROOT}/.github/zizmor.yml" \
            --format plain \
            "${FIXTURES_DIR}/bad-unpinned-actions.yml"
 
   expect_pass \
     "zizmor / good-workflow.yml (hash ピン済み → PASS 期待)" \
     zizmor --no-online-audits \
+           --config "${REPO_ROOT}/.github/zizmor.yml" \
            --format plain \
            "${FIXTURES_DIR}/good-workflow.yml"
 

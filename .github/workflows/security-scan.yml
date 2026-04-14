@@ -95,42 +95,34 @@ jobs:
         run: pip install zizmor==1.24.0 semgrep==1.159.0
 
       # ── zizmor: Action の hash ピン留め確認 ─────────────────
-      # ── semgrep: npm バージョン固定確認 ─────────────────────
-      # 両ツールを必ず最後まで実行し、問題があれば最終的に exit 1 を返す
-      - name: Run security scans
+      - name: "zizmor – Action Hash Pinning (${{ matrix.repo }})"
         shell: bash
         run: |
-          SCAN_EXIT=0
-
-          # ── zizmor ────────────────────────────────────────────
-          echo "::group::[${{ matrix.repo }}] zizmor – Action Hash Pinning"
           if [ -d "target/.github" ]; then
             dirs=""
             [ -d "target/.github/workflows" ] && dirs="${dirs} target/.github/workflows"
             [ -d "target/.github/actions"   ] && dirs="${dirs} target/.github/actions"
 
             if [ -n "${dirs}" ]; then
-              zizmor --no-online-audits --format plain ${dirs} || SCAN_EXIT=$?
+              zizmor --no-online-audits --config scanner/.github/zizmor.yml --format plain ${dirs}
             else
               echo "ℹ .github/workflows/ も .github/actions/ も存在しません: ${{ matrix.repo }}"
             fi
           else
             echo "ℹ .github/ が存在しません: ${{ matrix.repo }}"
           fi
-          echo "::endgroup::"
 
-          # ── semgrep ───────────────────────────────────────────
-          echo "::group::[${{ matrix.repo }}] semgrep – npm Version Pinning"
+      # ── semgrep: npm バージョン固定確認 ─────────────────────
+      - name: "semgrep – npm Version Pinning (${{ matrix.repo }})"
+        shell: bash
+        run: |
           if [ -d "target/.github" ]; then
             semgrep \
               --config scanner/.github/semgrep-rules/npm-unpinned.yml \
               --error \
               --include="*.yml" \
               --include="*.yaml" \
-              target/.github/ || SCAN_EXIT=$?
+              target/.github/
           else
             echo "ℹ .github/ が存在しません: ${{ matrix.repo }}"
           fi
-          echo "::endgroup::"
-
-          exit "${SCAN_EXIT}"

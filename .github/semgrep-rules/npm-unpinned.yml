@@ -45,10 +45,10 @@ rules:
           run: $SCRIPT
       - metavariable-regex:
           metavariable: $SCRIPT
-          # 行頭の npm/pnpm/yarn install にフラグ無しまたはフラグ付きで
-          # パッケージ名が続き、行末まで @ がない行にマッチ。
-          # [a-zA-Z0-9_\-./] は @ を含まないため、@X.Y.Z があれば行末 $ に届かない。
-          regex: "(?m)^\\s*(npm|pnpm|yarn)\\s+(install|i|add)\\s+(?:(?:--?\\S+)\\s+)*[a-zA-Z@][a-zA-Z0-9_\\-\\./]*(?:\\s+[a-zA-Z@][a-zA-Z0-9_\\-\\./]*)*\\s*$"
+          # install/add でパッケージ名があるのに @version が無い行を検出。
+          # (?!.*@) で「この行に @ が無い」ことを先に確認している。
+          regex: >-
+            (?m)^\s*(npm|pnpm|yarn)\s+(install|i|add)\s+(?!.*@)\S.*$
     paths:
       include:
         - "*.yml"
