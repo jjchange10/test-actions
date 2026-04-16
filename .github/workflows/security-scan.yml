@@ -201,29 +201,37 @@ jobs:
         shell: bash
         env:
           SCAN_RESULT: ${{ needs.scan.result }}
-          ACTOR: ${{ github.actor }}
-          REF_NAME: ${{ github.ref_name }}
-          COMMIT_URL: ${{ github.event.pull_request.html_url || github.event.head_commit.url }}
+          EVENT_NAME: ${{ github.event_name }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
           REPO_COUNT: ${{ needs.setup.outputs.count }}
         run: |
+          # トリガー種別
+          if [ "${EVENT_NAME}" = "schedule" ]; then
+            TRIGGER="スケジュール実行"
+          else
+            TRIGGER="手動実行"
+          fi
+
           if [ "${SCAN_RESULT}" = "success" ]; then
             STATUS_ICON=":white_check_mark:"
             STATUS_TEXT="成功"
             MAIN_MSG="全${REPO_COUNT}リポジトリのSecurity Scanが完了しました！"
             FAILURE_TEXT=""
+            FAIL_COUNT=0
           else
             STATUS_ICON=":x:"
             STATUS_TEXT="失敗"
-            MAIN_MSG="Security Scanで問題が検出されました。"
+            FAILURE_TEXT=""
+            FAIL_COUNT=0
 
             # 失敗リポジトリとワークフローパスを収集
-            FAILURE_TEXT=""
             if [ -d "all-scan-results" ]; then
               while IFS= read -r result_file; do
                 [ -f "${result_file}" ] || continue
                 repo=$(grep '^repo=' "${result_file}" | head -1 | sed 's/^repo=//' || true)
                 [ -z "${repo}" ] && continue
 
+                FAIL_COUNT=$((FAIL_COUNT + 1))
                 paths=$(grep -v '^repo=' "${result_file}" \
                   | sed 's/^zizmor://; s/^semgrep://' \
                   | sort -u || true)
@@ -236,12 +244,13 @@ jobs:
                 fi
               done < <(find all-scan-results -name "result.txt" -type f 2>/dev/null | sort)
             fi
+
+            MAIN_MSG="${REPO_COUNT}件中${FAIL_COUNT}件のリポジトリで問題が検出されました。"
           fi
 
-          MAIN_BLOCK_TEXT=$(printf '%s\n%s\n%s' \
+          MAIN_BLOCK_TEXT=$(printf '%s\n%s' \
             "${STATUS_ICON} *${STATUS_TEXT}*: ${MAIN_MSG}" \
-            "*実行者*: ${ACTOR}" \
-            "*ブランチ*: ${REF_NAME}")
+            "*トリガー*: ${TRIGGER}")
 
           if [ -n "${FAILURE_TEXT}" ]; then
             FAILURE_BLOCK_TEXT=$(printf '%s\n%s' \
@@ -251,7 +260,7 @@ jobs:
             jq -n \
               --arg main "${MAIN_BLOCK_TEXT}" \
               --arg failure "${FAILURE_BLOCK_TEXT}" \
-              --arg url "${COMMIT_URL}" \
+              --arg url "${RUN_URL}" \
               '{
                 blocks: [
                   {type: "section", text: {type: "mrkdwn", text: $main}},
@@ -263,7 +272,7 @@ jobs:
           else
             jq -n \
               --arg main "${MAIN_BLOCK_TEXT}" \
-              --arg url "${COMMIT_URL}" \
+              --arg url "${RUN_URL}" \
               '{
                 blocks: [
                   {type: "section", text: {type: "mrkdwn", text: $main}},
