@@ -16,6 +16,11 @@ on:
     # 毎週月曜日 02:00 UTC に自動スキャン
     - cron: "0 2 * * 1"
   workflow_dispatch:
+    inputs:
+      repos:
+        description: 'スキャン対象リポジトリ（カンマ区切り: owner/repo1,owner/repo2）。空の場合は全リポジトリ'
+        required: false
+        type: string
 
 permissions:
   contents: read
@@ -41,12 +46,19 @@ jobs:
         id: fetch-repos
         env:
           GH_TOKEN: ${{ secrets.SCAN_TOKEN || secrets.GITHUB_TOKEN }}
+          INPUT_REPOS: ${{ inputs.repos }}
         run: |
-          repos_json=$(gh repo list "${{ github.repository_owner }}" \
-            --json nameWithOwner \
-            --no-archived \
-            --limit 1000 \
-            | jq -c '[.[].nameWithOwner]')
+          if [ -n "${INPUT_REPOS}" ]; then
+            # 手動実行で repos 指定あり: カンマ区切りを JSON 配列に変換
+            repos_json=$(echo "${INPUT_REPOS}" | tr ',' '\n' | sed 's/^[[:space:]]*//; s/[[:space:]]*$//' | jq -R . | jq -sc '.')
+          else
+            # スケジュール実行 or repos 未指定: 全リポジトリ取得
+            repos_json=$(gh repo list "${{ github.repository_owner }}" \
+              --json nameWithOwner \
+              --no-archived \
+              --limit 1000 \
+              | jq -c '[.[].nameWithOwner]')
+          fi
 
           count=$(echo "${repos_json}" | jq 'length')
           matrix=$(echo "${repos_json}" | jq -c '{repo: .}')
@@ -100,18 +112,22 @@ jobs:
         continue-on-error: true
         shell: bash
         run: |
-          if [ -d "target/.github" ]; then
-            dirs=""
-            [ -d "target/.github/workflows" ] && dirs="${dirs} target/.github/workflows"
-            [ -d "target/.github/actions"   ] && dirs="${dirs} target/.github/actions"
+          # .github/workflows/ と action.yml / action.yaml をリポジトリ全体から収集
+          dirs=""
+          [ -d "target/.github/workflows" ] && dirs="target/.github/workflows"
 
-            if [ -n "${dirs}" ]; then
-              zizmor --no-online-audits --config scanner/.github/zizmor.yml --format plain ${dirs} 2>&1 | tee zizmor-output.txt
-            else
-              echo "ℹ .github/workflows/ も .github/actions/ も存在しません: ${{ matrix.repo }}"
-            fi
+          action_files=$(find target/ \( -name "action.yml" -o -name "action.yaml" \) 2>/dev/null)
+          while IFS= read -r f; do
+            [ -n "${f}" ] && dirs="${dirs} $(dirname "${f}")"
+          done <<< "${action_files}"
+
+          # 重複除去
+          dirs=$(echo "${dirs}" | tr ' ' '\n' | grep -v '^$' | sort -u | tr '\n' ' ')
+
+          if [ -n "${dirs}" ]; then
+            zizmor --no-online-audits --config scanner/.github/zizmor.yml --format plain ${dirs} 2>&1 | tee zizmor-output.txt
           else
-            echo "ℹ .github/ が存在しません: ${{ matrix.repo }}"
+            echo "ℹ スキャン対象ファイルが存在しません: ${{ matrix.repo }}"
           fi
 
       # ── semgrep: npm バージョン固定確認 ─────────────────────
