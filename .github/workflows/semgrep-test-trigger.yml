@@ -1,0 +1,19 @@
+name: Semgrep Test Trigger (intentionally violates npm-unpinned rule)
+
+# このワークフローは security-scan の semgrep 検出をテストするためのものです。
+# 実行されないよう workflow_dispatch のみに制限しています。
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test-unpinned-npm:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Install with dynamic version (should trigger ERROR)
+        run: npm install lodash@latest
+
+      - name: Install without version (should trigger WARNING)
+        run: npm install express
