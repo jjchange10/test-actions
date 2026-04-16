@@ -233,14 +233,13 @@ jobs:
 
                 FAIL_COUNT=$((FAIL_COUNT + 1))
                 paths=$(grep -v '^repo=' "${result_file}" \
-                  | sed 's/^zizmor://; s/^semgrep://' \
                   | sort -u || true)
 
                 if [ -n "${paths}" ]; then
-                  path_bullets=$(echo "${paths}" | sed 's/^/    • /')
+                  path_bullets=$(echo "${paths}" | sed 's/^zizmor:/    • [zizmor] /; s/^semgrep:/    • [semgrep] /')
                   FAILURE_TEXT="${FAILURE_TEXT}*${repo}*"$'\n'"${path_bullets}"$'\n'
                 else
-                  FAILURE_TEXT="${FAILURE_TEXT}• *${repo}*"$'\n'
+                  FAILURE_TEXT="${FAILURE_TEXT}*${repo}*"$'\n'
                 fi
               done < <(find all-scan-results -name "result.txt" -type f 2>/dev/null | sort)
             fi
