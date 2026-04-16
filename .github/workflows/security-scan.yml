@@ -44,8 +44,8 @@ jobs:
           REPO_OWNER: ${{ github.repository_owner }}
         run: |
           if [ -n "${INPUT_REPOS}" ]; then
-            # 手動実行で repos 指定あり: カンマ区切りを JSON 配列に変換
-            repos_json=$(echo "${INPUT_REPOS}" | tr ',' '\n' | sed 's/^[[:space:]]*//; s/[[:space:]]*$//' | jq -R . | jq -sc '.')
+            # 手動実行で repos 指定あり: カンマ区切りを JSON 配列に変換（空要素/前後空白を除去）
+            repos_json=$(jq -Rc 'split(",") | map(gsub("^\\s+|\\s+$"; "")) | map(select(length > 0))' <<< "${INPUT_REPOS}")
           else
             # スケジュール実行 or repos 未指定: 全リポジトリ取得
             repos_json=$(gh repo list "${REPO_OWNER}" \
@@ -55,14 +55,15 @@ jobs:
               | jq -c '[.[].nameWithOwner]')
           fi
 
-          count=$(echo "${repos_json}" | jq 'length')
-          matrix=$(echo "${repos_json}" | jq -c '{repo: .}')
+          count=$(jq 'length' <<< "${repos_json}")
 
-          echo "count=${count}" >> "$GITHUB_OUTPUT"
-          echo "matrix=${matrix}" >> "$GITHUB_OUTPUT"
+          {
+            echo "count=${count}"
+            echo "matrix=$(jq -c '{repo: .}' <<< "${repos_json}")"
+          } >> "$GITHUB_OUTPUT"
 
           echo "スキャン対象リポジトリ (${count}件):"
-          echo "${repos_json}" | jq -r '.[]' | sed 's/^/  - /'
+          jq -r '.[] | "  - \(.)"' <<< "${repos_json}"
 
   # 各リポジトリに対して zizmor + semgrep を並列実行
   # matrix.repo ごとに独立した runner が起動するため、リポジトリ数に比例して並列スキャンが実行される
@@ -101,15 +102,13 @@ jobs:
         id: targets
         shell: bash
         run: |
-          dirs=""
-          [ -d "target/.github/workflows" ] && dirs="target/.github/workflows"
-
-          action_files=$(find target/ \( -name "action.yml" -o -name "action.yaml" \) 2>/dev/null)
-          while IFS= read -r f; do
-            [ -n "${f}" ] && dirs="${dirs} $(dirname "${f}")"
-          done <<< "${action_files}"
-
-          dirs=$(echo "${dirs}" | tr ' ' '\n' | awk 'NF' | sort -u | tr '\n' ' ')
+          # .github/workflows と composite action (action.yml/action.yaml) のあるディレクトリを列挙
+          dirs=$(
+            {
+              [ -d "target/.github/workflows" ] && echo "target/.github/workflows"
+              find target/ \( -name "action.yml" -o -name "action.yaml" \) -exec dirname {} + 2>/dev/null
+            } | sort -u | tr '\n' ' '
+          )
           echo "dirs=${dirs}" >> "$GITHUB_OUTPUT"
 
       - name: "zizmor – Action Hash Pinning"
@@ -213,7 +212,11 @@ jobs:
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
           REPO_COUNT: ${{ needs.setup.outputs.count }}
         run: |
-          TRIGGER="$( [ "${EVENT_NAME}" = "schedule" ] && echo "スケジュール実行" || echo "手動実行" )"
+          if [ "${EVENT_NAME}" = "schedule" ]; then
+            TRIGGER="スケジュール実行"
+          else
+            TRIGGER="手動実行"
+          fi
 
           FAILURE_TEXT=""
           FAIL_COUNT=0
@@ -251,7 +254,8 @@ jobs:
             "${STATUS_ICON} *${STATUS_TEXT}*: ${MAIN_MSG}" \
             "*トリガー*: ${TRIGGER}")
 
-          HAS_FAILURE="$( [ -n "${FAILURE_TEXT}" ] && echo 'true' || echo 'false' )"
+          HAS_FAILURE=false
+          [ -n "${FAILURE_TEXT}" ] && HAS_FAILURE=true
           FAILURE_BLOCK_TEXT=$(printf '%s\n%s' "*問題が検出されたリポジトリとワークフロー:*" "${FAILURE_TEXT}")
 
           jq -n \
