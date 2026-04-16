@@ -1,4 +1,4 @@
-name: GitHub Actions Security Scanner
+name: GitHub Actions Security Scanner slack
 
 on:
   push:
