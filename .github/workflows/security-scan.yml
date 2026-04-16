@@ -96,6 +96,8 @@ jobs:
 
       # ── zizmor: Action の hash ピン留め確認 ─────────────────
       - name: "zizmor – Action Hash Pinning (${{ matrix.repo }})"
+        id: zizmor
+        continue-on-error: true
         shell: bash
         run: |
           if [ -d "target/.github" ]; then
@@ -104,7 +106,7 @@ jobs:
             [ -d "target/.github/actions"   ] && dirs="${dirs} target/.github/actions"
 
             if [ -n "${dirs}" ]; then
-              zizmor --no-online-audits --config scanner/.github/zizmor.yml --format plain ${dirs}
+              zizmor --no-online-audits --config scanner/.github/zizmor.yml --format plain ${dirs} 2>&1 | tee zizmor-output.txt
             else
               echo "ℹ .github/workflows/ も .github/actions/ も存在しません: ${{ matrix.repo }}"
             fi
@@ -114,6 +116,8 @@ jobs:
 
       # ── semgrep: npm バージョン固定確認 ─────────────────────
       - name: "semgrep – npm Version Pinning (${{ matrix.repo }})"
+        id: semgrep
+        continue-on-error: true
         shell: bash
         run: |
           if [ -d "target/.github" ]; then
@@ -122,40 +126,155 @@ jobs:
               --error \
               --include="*.yml" \
               --include="*.yaml" \
-              target/.github/
+              target/.github/ 2>&1 | tee semgrep-output.txt
           else
             echo "ℹ .github/ が存在しません: ${{ matrix.repo }}"
           fi
-      - name: Notify Slack
-        if: always()
-        uses: slackapi/slack-github-action@v2.0.0
+
+      # ── 失敗したワークフローパスを artifact として保存 ──────
+      - name: Collect failure details
+        id: collect-failures
+        if: steps.zizmor.outcome == 'failure' || steps.semgrep.outcome == 'failure'
+        shell: bash
+        run: |
+          repo="${{ matrix.repo }}"
+          safe_repo=$(echo "${repo}" | tr '/' '-')
+          mkdir -p scan-results
+
+          {
+            echo "repo=${repo}"
+
+            # zizmor plain format: "  --> target/.github/workflows/foo.yml:23:9"
+            if [ "${{ steps.zizmor.outcome }}" = "failure" ] && [ -f zizmor-output.txt ]; then
+              grep -- '-->' zizmor-output.txt \
+                | grep -oE 'target/\.github/[^[:space:]]+' \
+                | sed 's/:.*$//; s|^target/||' \
+                | sort -u \
+                | sed 's/^/zizmor:/' \
+                || true
+            fi
+
+            # semgrep: 出力から "target/.github/..." パスを抽出
+            if [ "${{ steps.semgrep.outcome }}" = "failure" ] && [ -f semgrep-output.txt ]; then
+              grep -oE 'target/\.github/[^[:space:]:]+\.ya?ml' semgrep-output.txt \
+                | sed 's|^target/||' \
+                | sort -u \
+                | sed 's/^/semgrep:/' \
+                || true
+            fi
+          } > "scan-results/result.txt"
+
+          echo "safe_repo=${safe_repo}" >> "$GITHUB_OUTPUT"
+
+      - name: Upload scan result artifact
+        if: steps.collect-failures.outcome == 'success'
+        uses: actions/upload-artifact@v4
+        with:
+          name: scan-result-${{ steps.collect-failures.outputs.safe_repo }}
+          path: scan-results/result.txt
+          retention-days: 1
+
+      - name: Fail if security issues detected
+        if: steps.zizmor.outcome == 'failure' || steps.semgrep.outcome == 'failure'
+        run: |
+          echo "::error::セキュリティ問題が検出されました: ${{ matrix.repo }}"
+          exit 1
+
+  # ──────────────────────────────────────────────────────────────
+  # Job 3: 全スキャン完了後に Slack 通知
+  #         失敗したリポジトリ一覧とワークフローパスを含む
+  # ──────────────────────────────────────────────────────────────
+  notify:
+    name: "Slack Notification"
+    needs: [setup, scan]
+    if: always() && needs.setup.result == 'success' && needs.setup.outputs.count > 0
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download scan result artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: scan-result-*
+          path: all-scan-results
+        continue-on-error: true
+
+      - name: Build Slack payload
+        shell: bash
         env:
-          STATUS_ICON: ${{ job.status == 'success' && ':white_check_mark:' || ':x:' }}
-          STATUS_TEXT: ${{ job.status == 'success' && '成功' || '失敗' }}
-          DEPLOY_STATUS: ${{ job.status == 'success' && 'Security Scanが完了しました！' || 'Security Scanが失敗しました。' }}
+          SCAN_RESULT: ${{ needs.scan.result }}
+          ACTOR: ${{ github.actor }}
+          REF_NAME: ${{ github.ref_name }}
           COMMIT_URL: ${{ github.event.pull_request.html_url || github.event.head_commit.url }}
+          REPO_COUNT: ${{ needs.setup.outputs.count }}
+        run: |
+          if [ "${SCAN_RESULT}" = "success" ]; then
+            STATUS_ICON=":white_check_mark:"
+            STATUS_TEXT="成功"
+            MAIN_MSG="全${REPO_COUNT}リポジトリのSecurity Scanが完了しました！"
+            FAILURE_TEXT=""
+          else
+            STATUS_ICON=":x:"
+            STATUS_TEXT="失敗"
+            MAIN_MSG="Security Scanで問題が検出されました。"
+
+            # 失敗リポジトリとワークフローパスを収集
+            FAILURE_TEXT=""
+            if [ -d "all-scan-results" ]; then
+              while IFS= read -r result_file; do
+                [ -f "${result_file}" ] || continue
+                repo=$(grep '^repo=' "${result_file}" | head -1 | sed 's/^repo=//')
+                [ -z "${repo}" ] && continue
+
+                paths=$(grep -v '^repo=' "${result_file}" \
+                  | sed 's/^zizmor://; s/^semgrep://' \
+                  | sort -u)
+
+                if [ -n "${paths}" ]; then
+                  path_bullets=$(echo "${paths}" | sed 's/^/    • /')
+                  FAILURE_TEXT="${FAILURE_TEXT}*${repo}*"$'\n'"${path_bullets}"$'\n'
+                else
+                  FAILURE_TEXT="${FAILURE_TEXT}• *${repo}*"$'\n'
+                fi
+              done < <(find all-scan-results -name "result.txt" -type f 2>/dev/null | sort)
+            fi
+          fi
+
+          MAIN_BLOCK_TEXT=$(printf '%s\n%s\n%s' \
+            "${STATUS_ICON} *${STATUS_TEXT}*: ${MAIN_MSG}" \
+            "*実行者*: ${ACTOR}" \
+            "*ブランチ*: ${REF_NAME}")
+
+          if [ -n "${FAILURE_TEXT}" ]; then
+            FAILURE_BLOCK_TEXT=$(printf '%s\n%s' \
+              "*問題が検出されたリポジトリとワークフロー:*" \
+              "${FAILURE_TEXT}")
+
+            jq -n \
+              --arg main "${MAIN_BLOCK_TEXT}" \
+              --arg failure "${FAILURE_BLOCK_TEXT}" \
+              --arg url "${COMMIT_URL}" \
+              '{
+                blocks: [
+                  {type: "section", text: {type: "mrkdwn", text: $main}},
+                  {type: "divider"},
+                  {type: "section", text: {type: "mrkdwn", text: $failure}},
+                  {type: "context", elements: [{type: "mrkdwn", text: ("<" + $url + "|詳細を確認する>")}]}
+                ]
+              }' > slack-payload.json
+          else
+            jq -n \
+              --arg main "${MAIN_BLOCK_TEXT}" \
+              --arg url "${COMMIT_URL}" \
+              '{
+                blocks: [
+                  {type: "section", text: {type: "mrkdwn", text: $main}},
+                  {type: "context", elements: [{type: "mrkdwn", text: ("<" + $url + "|詳細を確認する>")}]}
+                ]
+              }' > slack-payload.json
+          fi
+
+      - name: Notify Slack
+        uses: slackapi/slack-github-action@v2.0.0
         with:
           webhook: ${{ secrets.SLACK_INCOMING_WEBHOOK_URL }}
           webhook-type: incoming-webhook
-          payload: |
-            {
-              "text": "${{ env.STATUS_ICON }} *${{ env.STATUS_TEXT }}*: ${{ env.DEPLOY_STATUS }}",
-              "blocks": [
-                {
-                  "type": "section",
-                  "text": {
-                    "type": "mrkdwn",
-                    "text": "${{ env.STATUS_ICON }} *${{ env.STATUS_TEXT }}*: ${{ env.DEPLOY_STATUS }}\n*実行者*: ${{ github.actor }}\n*ブランチ*: ${{ github.ref_name }}\n*コミットメッセージ*: ${{ github.event.head_commit.message }}"
-                  }
-                },
-                {
-                  "type": "context",
-                  "elements": [
-                    {
-                      "type": "mrkdwn",
-                      "text": "<${{ env.COMMIT_URL }}|詳細を確認する>"
-                    }
-                  ]
-                }
-              ]
-            }
+          payload-file-path: ./slack-payload.json
