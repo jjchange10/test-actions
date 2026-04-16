@@ -1,4 +1,4 @@
-name: GitHub Actions Security Scanner slack
+name: GitHub Actions Security Scanner
 
 on:
   push:
@@ -26,15 +26,9 @@ permissions:
   contents: read
 
 jobs:
-  # ──────────────────────────────────────────────────────────────
-  # Job 1: gh repo list でスキャン対象リポジトリを動的取得し
-  #         matrix を生成する
-  #
-  # 使用するトークンについて:
-  #   - パブリックリポジトリのみ: GITHUB_TOKEN で動作
-  #   - プライベートリポジトリを含む場合: SCAN_TOKEN (PAT) が必要
-  #     必要なスコープ: repo, read:org
-  # ──────────────────────────────────────────────────────────────
+  # gh repo list でスキャン対象リポジトリを動的取得し matrix を生成する
+  # パブリックリポジトリのみ: GITHUB_TOKEN で動作
+  # プライベートリポジトリを含む場合: SCAN_TOKEN (PAT) が必要 (スコープ: repo, read:org)
   setup:
     name: "Fetch Target Repositories"
     runs-on: ubuntu-latest
@@ -47,13 +41,14 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.SCAN_TOKEN || secrets.GITHUB_TOKEN }}
           INPUT_REPOS: ${{ inputs.repos }}
+          REPO_OWNER: ${{ github.repository_owner }}
         run: |
           if [ -n "${INPUT_REPOS}" ]; then
             # 手動実行で repos 指定あり: カンマ区切りを JSON 配列に変換
             repos_json=$(echo "${INPUT_REPOS}" | tr ',' '\n' | sed 's/^[[:space:]]*//; s/[[:space:]]*$//' | jq -R . | jq -sc '.')
           else
             # スケジュール実行 or repos 未指定: 全リポジトリ取得
-            repos_json=$(gh repo list "${{ github.repository_owner }}" \
+            repos_json=$(gh repo list "${REPO_OWNER}" \
               --json nameWithOwner \
               --no-archived \
               --limit 1000 \
@@ -69,18 +64,13 @@ jobs:
           echo "スキャン対象リポジトリ (${count}件):"
           echo "${repos_json}" | jq -r '.[]' | sed 's/^/  - /'
 
-  # ──────────────────────────────────────────────────────────────
-  # Job 2: 各リポジトリに対して zizmor + semgrep を並列実行
-  #
-  # matrix.repo ごとに独立した runner が起動するため、
-  # リポジトリ数に比例して並列スキャンが実行される。
-  # fail-fast: false により 1 つのリポジトリで問題が見つかっても
-  # 残りのスキャンは継続する。
-  # ──────────────────────────────────────────────────────────────
+  # 各リポジトリに対して zizmor + semgrep を並列実行
+  # matrix.repo ごとに独立した runner が起動するため、リポジトリ数に比例して並列スキャンが実行される
+  # fail-fast: false により 1 つのリポジトリで問題が見つかっても残りのスキャンは継続する
   scan:
     name: "Scan ${{ matrix.repo }}"
     needs: setup
-    if: ${{ needs.setup.outputs.count > 0 }}
+    if: ${{ fromJSON(needs.setup.outputs.count) > 0 }}
     strategy:
       matrix: ${{ fromJson(needs.setup.outputs.matrix) }}
       fail-fast: false
@@ -94,25 +84,23 @@ jobs:
           path: scanner
 
       # スキャン対象リポジトリを target/ に配置
-      - name: Checkout target repository (${{ matrix.repo }})
+      - name: Checkout target repository
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
         with:
           repository: ${{ matrix.repo }}
           token: ${{ secrets.SCAN_TOKEN || secrets.GITHUB_TOKEN }}
           persist-credentials: false
-          fetch-depth: 0
+          fetch-depth: 1
           path: target
 
       - name: Install tools
         run: pip install zizmor==1.24.0 semgrep==1.159.0
 
-      # ── zizmor: Action の hash ピン留め確認 ─────────────────
-      - name: "zizmor – Action Hash Pinning (${{ matrix.repo }})"
-        id: zizmor
-        continue-on-error: true
+      # スキャン対象ディレクトリを収集（zizmor / semgrep で共用）
+      - name: Collect scan targets
+        id: targets
         shell: bash
         run: |
-          # .github/workflows/ と action.yml / action.yaml をリポジトリ全体から収集
           dirs=""
           [ -d "target/.github/workflows" ] && dirs="target/.github/workflows"
 
@@ -121,58 +109,63 @@ jobs:
             [ -n "${f}" ] && dirs="${dirs} $(dirname "${f}")"
           done <<< "${action_files}"
 
-          # 重複除去
           dirs=$(echo "${dirs}" | tr ' ' '\n' | awk 'NF' | sort -u | tr '\n' ' ')
+          echo "dirs=${dirs}" >> "$GITHUB_OUTPUT"
 
-          if [ -n "${dirs}" ]; then
-            zizmor --no-online-audits --config scanner/.github/zizmor.yml --format plain ${dirs} 2>&1 | tee zizmor-output.txt
-          else
-            echo "ℹ スキャン対象ファイルが存在しません: ${{ matrix.repo }}"
-          fi
-
-      # ── semgrep: npm バージョン固定確認 ─────────────────────
-      - name: "semgrep – npm Version Pinning (${{ matrix.repo }})"
-        id: semgrep
+      - name: "zizmor – Action Hash Pinning"
+        id: zizmor
+        if: steps.targets.outputs.dirs != ''
         continue-on-error: true
+        env:
+          SCAN_DIRS: ${{ steps.targets.outputs.dirs }}
         shell: bash
         run: |
-          if [ -d "target/.github" ]; then
-            semgrep \
-              --config scanner/.github/semgrep-rules/npm-unpinned.yml \
-              --error \
-              --include="*.yml" \
-              --include="*.yaml" \
-              target/.github/ 2>&1 | tee semgrep-output.txt
-          else
-            echo "ℹ .github/ が存在しません: ${{ matrix.repo }}"
-          fi
+          zizmor --no-online-audits --config scanner/.github/zizmor.yml --format plain ${SCAN_DIRS} 2>&1 | tee zizmor-output.txt
 
-      # ── 失敗したワークフローパスを artifact として保存 ──────
+      - name: "semgrep – npm Version Pinning"
+        id: semgrep
+        if: steps.targets.outputs.dirs != ''
+        continue-on-error: true
+        env:
+          SCAN_DIRS: ${{ steps.targets.outputs.dirs }}
+        shell: bash
+        run: |
+          semgrep \
+            --config scanner/.github/semgrep-rules/npm-unpinned.yml \
+            --error \
+            --include="*.yml" \
+            --include="*.yaml" \
+            ${SCAN_DIRS} 2>&1 | tee semgrep-output.txt
+
+      # 失敗したワークフローパスを artifact として保存
       - name: Collect failure details
         id: collect-failures
         if: steps.zizmor.outcome == 'failure' || steps.semgrep.outcome == 'failure'
         shell: bash
+        env:
+          REPO: ${{ matrix.repo }}
+          ZIZMOR_OUTCOME: ${{ steps.zizmor.outcome }}
+          SEMGREP_OUTCOME: ${{ steps.semgrep.outcome }}
         run: |
-          repo="${{ matrix.repo }}"
-          safe_repo=$(echo "${repo}" | tr '/' '-')
+          safe_repo=$(echo "${REPO}" | tr '/' '-')
           mkdir -p scan-results
 
           {
-            echo "repo=${repo}"
+            echo "repo=${REPO}"
 
             # zizmor plain format: "  --> target/.github/workflows/foo.yml:23:9"
-            if [ "${{ steps.zizmor.outcome }}" = "failure" ] && [ -f zizmor-output.txt ]; then
+            if [ "${ZIZMOR_OUTCOME}" = "failure" ] && [ -f zizmor-output.txt ]; then
               grep -- '-->' zizmor-output.txt \
-                | grep -oE 'target/\.github/[^[:space:]]+' \
+                | grep -oE 'target/[^[:space:]]+' \
                 | sed 's/:.*$//; s|^target/||' \
                 | sort -u \
                 | sed 's/^/zizmor:/' \
                 || true
             fi
 
-            # semgrep: 出力から "target/.github/..." パスを抽出
-            if [ "${{ steps.semgrep.outcome }}" = "failure" ] && [ -f semgrep-output.txt ]; then
-              grep -oE 'target/\.github/[^[:space:]:]+\.ya?ml' semgrep-output.txt \
+            # semgrep: 出力からファイルパスを抽出
+            if [ "${SEMGREP_OUTCOME}" = "failure" ] && [ -f semgrep-output.txt ]; then
+              grep -oE 'target/[^[:space:]:]+\.ya?ml' semgrep-output.txt \
                 | sed 's|^target/||' \
                 | sort -u \
                 | sed 's/^/semgrep:/' \
@@ -192,18 +185,17 @@ jobs:
 
       - name: Fail if security issues detected
         if: steps.zizmor.outcome == 'failure' || steps.semgrep.outcome == 'failure'
+        env:
+          REPO: ${{ matrix.repo }}
         run: |
-          echo "::error::セキュリティ問題が検出されました: ${{ matrix.repo }}"
+          echo "::error::セキュリティ問題が検出されました: ${REPO}"
           exit 1
 
-  # ──────────────────────────────────────────────────────────────
-  # Job 3: 全スキャン完了後に Slack 通知
-  #         失敗したリポジトリ一覧とワークフローパスを含む
-  # ──────────────────────────────────────────────────────────────
+  # 全スキャン完了後に Slack 通知（失敗したリポジトリ一覧とワークフローパスを含む）
   notify:
     name: "Slack Notification"
     needs: [setup, scan]
-    if: always() && needs.setup.result == 'success' && needs.setup.outputs.count > 0
+    if: always() && needs.setup.result == 'success' && fromJSON(needs.setup.outputs.count) > 0
     runs-on: ubuntu-latest
     steps:
       - name: Download scan result artifacts
@@ -221,26 +213,19 @@ jobs:
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
           REPO_COUNT: ${{ needs.setup.outputs.count }}
         run: |
-          # トリガー種別
-          if [ "${EVENT_NAME}" = "schedule" ]; then
-            TRIGGER="スケジュール実行"
-          else
-            TRIGGER="手動実行"
-          fi
+          TRIGGER="$( [ "${EVENT_NAME}" = "schedule" ] && echo "スケジュール実行" || echo "手動実行" )"
+
+          FAILURE_TEXT=""
+          FAIL_COUNT=0
 
           if [ "${SCAN_RESULT}" = "success" ]; then
             STATUS_ICON=":white_check_mark:"
             STATUS_TEXT="成功"
             MAIN_MSG="全${REPO_COUNT}リポジトリのSecurity Scanが完了しました！"
-            FAILURE_TEXT=""
-            FAIL_COUNT=0
           else
             STATUS_ICON=":x:"
             STATUS_TEXT="失敗"
-            FAILURE_TEXT=""
-            FAIL_COUNT=0
 
-            # 失敗リポジトリとワークフローパスを収集
             if [ -d "all-scan-results" ]; then
               while IFS= read -r result_file; do
                 [ -f "${result_file}" ] || continue
@@ -248,8 +233,7 @@ jobs:
                 [ -z "${repo}" ] && continue
 
                 FAIL_COUNT=$((FAIL_COUNT + 1))
-                paths=$(grep -v '^repo=' "${result_file}" \
-                  | sort -u || true)
+                paths=$(grep -v '^repo=' "${result_file}" | sort -u || true)
 
                 if [ -n "${paths}" ]; then
                   path_bullets=$(echo "${paths}" | sed 's/^zizmor:/    • [zizmor] /; s/^semgrep:/    • [semgrep] /')
@@ -267,34 +251,23 @@ jobs:
             "${STATUS_ICON} *${STATUS_TEXT}*: ${MAIN_MSG}" \
             "*トリガー*: ${TRIGGER}")
 
-          if [ -n "${FAILURE_TEXT}" ]; then
-            FAILURE_BLOCK_TEXT=$(printf '%s\n%s' \
-              "*問題が検出されたリポジトリとワークフロー:*" \
-              "${FAILURE_TEXT}")
+          HAS_FAILURE="$( [ -n "${FAILURE_TEXT}" ] && echo 'true' || echo 'false' )"
+          FAILURE_BLOCK_TEXT=$(printf '%s\n%s' "*問題が検出されたリポジトリとワークフロー:*" "${FAILURE_TEXT}")
 
-            jq -n \
-              --arg main "${MAIN_BLOCK_TEXT}" \
-              --arg failure "${FAILURE_BLOCK_TEXT}" \
-              --arg url "${RUN_URL}" \
-              '{
-                blocks: [
-                  {type: "section", text: {type: "mrkdwn", text: $main}},
-                  {type: "divider"},
-                  {type: "section", text: {type: "mrkdwn", text: $failure}},
-                  {type: "context", elements: [{type: "mrkdwn", text: ("<" + $url + "|詳細を確認する>")}]}
-                ]
-              }' > slack-payload.json
-          else
-            jq -n \
-              --arg main "${MAIN_BLOCK_TEXT}" \
-              --arg url "${RUN_URL}" \
-              '{
-                blocks: [
-                  {type: "section", text: {type: "mrkdwn", text: $main}},
-                  {type: "context", elements: [{type: "mrkdwn", text: ("<" + $url + "|詳細を確認する>")}]}
-                ]
-              }' > slack-payload.json
-          fi
+          jq -n \
+            --arg main "${MAIN_BLOCK_TEXT}" \
+            --arg failure "${FAILURE_BLOCK_TEXT}" \
+            --arg url "${RUN_URL}" \
+            --argjson has_failure "${HAS_FAILURE}" \
+            '
+            [{type: "section", text: {type: "mrkdwn", text: $main}}] +
+            (if $has_failure then [
+              {type: "divider"},
+              {type: "section", text: {type: "mrkdwn", text: $failure}}
+            ] else [] end) +
+            [{type: "context", elements: [{type: "mrkdwn", text: ("<" + $url + "|詳細を確認する>")}]}]
+            | {blocks: .}
+            ' > slack-payload.json
 
       - name: Notify Slack
         uses: slackapi/slack-github-action@v2.0.0
