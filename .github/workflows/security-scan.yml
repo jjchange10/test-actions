@@ -122,7 +122,7 @@ jobs:
           done <<< "${action_files}"
 
           # 重複除去
-          dirs=$(echo "${dirs}" | tr ' ' '\n' | grep -v '^$' | sort -u | tr '\n' ' ')
+          dirs=$(echo "${dirs}" | tr ' ' '\n' | awk 'NF' | sort -u | tr '\n' ' ')
 
           if [ -n "${dirs}" ]; then
             zizmor --no-online-audits --config scanner/.github/zizmor.yml --format plain ${dirs} 2>&1 | tee zizmor-output.txt
