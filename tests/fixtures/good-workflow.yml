@@ -1,0 +1,39 @@
+name: Good Workflow – Properly Secured (zizmor + semgrep PASS expected)
+
+on: push
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      # GOOD: SHA hash でピン留め済み + credential を永続化しない
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+        with:
+          persist-credentials: false
+
+      # GOOD: SHA hash でピン留め済み
+      - uses: actions/setup-node@39370e3970a6d050c480ffad4ff0ed4d3fdee5af  # v4.1.0
+        with:
+          node-version: "20"
+
+      # GOOD: 厳密なバージョン指定
+      - name: Install pinned dependencies
+        run: npm install lodash@4.17.21 express@4.18.2
+
+      # GOOD: npm ci は package-lock.json から完全再現インストール
+      - name: Install from lockfile
+        run: npm ci
+
+      # GOOD: 素の npm install（package.json から）も許容
+      - name: Install from package.json
+        run: npm install
+
+      # GOOD: スコープ付きパッケージもバージョン指定あり
+      - name: Install scoped with version
+        run: npm install @types/node@18.19.0
+
+      - name: Build
+        run: echo "building with pinned deps..."

@@ -1,0 +1,55 @@
+rules:
+  # Rule 1: @latest / @main など動的タグによるバージョン指定を検出 → ERROR
+  - id: forbid-dynamic-version-in-actions
+    languages:
+      - yaml
+    severity: ERROR
+    message: |
+      CI環境での動的なパッケージバージョン指定（@latest, @main 等）は禁止されています。
+      npm/pnpm/yarn の場合は厳密なバージョン指定（pkg@1.2.3）か npm ci を使用し、
+      pip の場合は requirements.txt 等によるバージョン固定を行ってください。
+    patterns:
+      - pattern: |
+          run: $SCRIPT
+      - metavariable-regex:
+          metavariable: $SCRIPT
+          regex: "(?s).*(npm|pnpm|yarn|pip|pip3)\\s+(install|i|add).*(@|==)(?:latest|main|next|beta|alpha|canary).*"
+    paths:
+      include:
+        - "*.yml"
+        - "*.yaml"
+
+  # Rule 2: パッケージ名はあるがバージョン指定なし（@X.Y.Z がない）を検出 → WARNING
+  #
+  # マッチする例（問題あり）:
+  #   npm install lodash
+  #   npm install express body-parser
+  #   npm install -g typescript
+  #   npm install @types/node
+  #
+  # マッチしない例（問題なし）:
+  #   npm install lodash@4.17.21      ← 厳密バージョン指定
+  #   npm install @types/node@18.0.0  ← 厳密バージョン指定
+  #   npm ci                          ← lock file から完全再現
+  #   npm install                     ← package.json から
+  #   npm install --save-dev pkg@1.0  ← フラグ付きでもバージョンあり
+  - id: forbid-unversioned-install-in-actions
+    languages:
+      - yaml
+    severity: WARNING
+    message: |
+      npm/pnpm/yarn install でパッケージ名のみ指定されておりバージョンが固定されていません。
+      再現性のあるビルドのために @1.2.3 形式の厳密なバージョン指定、または npm ci を使用してください。
+    patterns:
+      - pattern: |
+          run: $SCRIPT
+      - metavariable-regex:
+          metavariable: $SCRIPT
+          # install/add でパッケージ名があるのに @version が無い行を検出。
+          # (?!.*@) で「この行に @ が無い」ことを先に確認している。
+          regex: >-
+            (?m)^\s*(npm|pnpm|yarn)\s+(install|i|add)\s+(?!.*@)\S.*$
+    paths:
+      include:
+        - "*.yml"
+        - "*.yaml"

@@ -1,0 +1,22 @@
+name: Bad Workflow – Unpinned Actions (zizmor FAIL expected)
+
+on: push
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      # BAD: タグ指定（SHA hash なし）→ zizmor が検出すべき
+      - uses: actions/checkout@v4
+
+      # BAD: ブランチ指定 → zizmor が検出すべき
+      - uses: actions/setup-node@main
+
+      # BAD: バージョンタグ → zizmor が検出すべき
+      - uses: softprops/action-gh-release@v2
+
+      - name: build
+        run: echo "building..."
