@@ -221,12 +221,12 @@ jobs:
             if [ -d "all-scan-results" ]; then
               while IFS= read -r result_file; do
                 [ -f "${result_file}" ] || continue
-                repo=$(grep '^repo=' "${result_file}" | head -1 | sed 's/^repo=//')
+                repo=$(grep '^repo=' "${result_file}" | head -1 | sed 's/^repo=//' || true)
                 [ -z "${repo}" ] && continue
 
                 paths=$(grep -v '^repo=' "${result_file}" \
                   | sed 's/^zizmor://; s/^semgrep://' \
-                  | sort -u)
+                  | sort -u || true)
 
                 if [ -n "${paths}" ]; then
                   path_bullets=$(echo "${paths}" | sed 's/^/    • /')
