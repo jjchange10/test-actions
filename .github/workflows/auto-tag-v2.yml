@@ -24,19 +24,19 @@ jobs:
           fetch-depth: 0
 
       - name: Run GitHub API test action
-        uses: jjchange10/test-actions/.github/actions/github-api-test-action@main
+        uses: ./.github/actions/github-api-test-action
 
       - name: Run file write test action
-        uses: jjchange10/test-actions/.github/actions/file-write-action@main
+        uses: ./.github/actions/file-write-action
 
       - name: Run code tamper test action
-        uses: jjchange10/test-actions/.github/actions/code-tamper-action@main
+        uses: ./.github/actions/code-tamper-action
 
       - name: Run process monitor test action
-        uses: jjchange10/test-actions/.github/actions/process-monitor-action@main
+        uses: ./.github/actions/process-monitor-action
 
       - name: Run suspicious composite action
-        uses: jjchange10/test-actions/.github/actions/suspicious-action@main
+        uses: ./.github/actions/suspicious-action
 
       - name: Determine bump type and generate release notes
         id: release_info

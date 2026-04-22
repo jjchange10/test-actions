@@ -212,7 +212,7 @@ jobs:
 
       - name: Upload scan result artifact
         if: steps.collect-failures.outcome == 'success'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: scan-result-${{ steps.collect-failures.outputs.safe_repo }}
           path: scan-results/result.txt
@@ -234,7 +234,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Download scan result artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           pattern: scan-result-*
           path: all-scan-results
@@ -242,7 +242,7 @@ jobs:
 
       - name: Restore Slack TS cache
         id: restore-ts
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: slack-ts.txt
           key: slack-ts-${{ github.run_id }}
@@ -340,7 +340,7 @@ jobs:
 
       - name: Save Slack TS cache
         if: steps.restore-ts.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: slack-ts.txt
           key: slack-ts-${{ github.run_id }}

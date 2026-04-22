@@ -12,4 +12,4 @@ runs:
         echo "[Level 1] Done."
 
     - name: Call Level 2 action
-      uses: jjchange10/test-actions/.github/actions/nested-action-l2@main
+      uses: ./.github/actions/nested-action-l2
