@@ -1,20 +1,6 @@
 name: GitHub Actions Security Scanner
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - ".github/workflows/**"
-      - ".github/actions/**"
-      - ".github/semgrep-rules/**"
-  pull_request:
-    paths:
-      - ".github/workflows/**"
-      - ".github/actions/**"
-      - ".github/semgrep-rules/**"
-  schedule:
-    # 毎週月曜日 02:00 UTC に自動スキャン
-    - cron: "0 2 * * 1"
   workflow_dispatch:
     inputs:
       repos:
