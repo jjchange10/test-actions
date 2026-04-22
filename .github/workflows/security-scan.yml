@@ -190,7 +190,7 @@ jobs:
                 | sort -u \
                 | while IFS= read -r path; do
                     owners=$(get_owners "${path}")
-                    [ -n "${owners}" ] && echo "zizmor:${path} ${owners}" || echo "zizmor:${path}"
+                    [ -n "${owners}" ] && echo "zizmor:${path} ${owners}" || echo "zizmor:${path} (設定なし)"
                   done \
                 || true
             fi
@@ -202,7 +202,7 @@ jobs:
                 | sort -u \
                 | while IFS= read -r path; do
                     owners=$(get_owners "${path}")
-                    [ -n "${owners}" ] && echo "semgrep:${path} ${owners}" || echo "semgrep:${path}"
+                    [ -n "${owners}" ] && echo "semgrep:${path} ${owners}" || echo "semgrep:${path} (設定なし)"
                   done \
                 || true
             fi
