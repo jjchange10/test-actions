@@ -240,6 +240,13 @@ jobs:
           path: all-scan-results
         continue-on-error: true
 
+      - name: Restore Slack TS cache
+        id: restore-ts
+        uses: actions/cache/restore@v4
+        with:
+          path: slack-ts.txt
+          key: slack-ts-${{ github.run_id }}
+
       - name: Build Slack payload
         shell: bash
         env:
@@ -309,9 +316,35 @@ jobs:
               }]
             }' > slack-payload.json
 
-      - name: Notify Slack
-        uses: slackapi/slack-github-action@v2.0.0
+      - name: Post or Update Slack
+        shell: bash
+        env:
+          SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
+          SLACK_CHANNEL_ID: ${{ secrets.SLACK_CHANNEL_ID }}
+          CACHE_HIT: ${{ steps.restore-ts.outputs.cache-hit }}
+        run: |
+          ATTACHMENTS=$(jq -c '.attachments' slack-payload.json)
+          if [ "${CACHE_HIT}" = "true" ] && [ -f slack-ts.txt ]; then
+            TS=$(cat slack-ts.txt)
+            curl -sSf -X POST https://slack.com/api/chat.update \
+              -H "Authorization: Bearer ${SLACK_BOT_TOKEN}" \
+              -H "Content-Type: application/json" \
+              -d "{\"channel\":\"${SLACK_CHANNEL_ID}\",\"ts\":\"${TS}\",\"attachments\":${ATTACHMENTS}}"
+          else
+            RESPONSE=$(curl -sSf -X POST https://slack.com/api/chat.postMessage \
+              -H "Authorization: Bearer ${SLACK_BOT_TOKEN}" \
+              -H "Content-Type: application/json" \
+              -d "{\"channel\":\"${SLACK_CHANNEL_ID}\",\"attachments\":${ATTACHMENTS}}")
+            echo "${RESPONSE}" | jq -r '.ts' > slack-ts.txt
+          fi
+
+      - name: Save Slack TS cache
+        if: steps.restore-ts.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
         with:
-          webhook: ${{ secrets.SLACK_INCOMING_WEBHOOK_URL }}
-          webhook-type: incoming-webhook
-          payload-file-path: ./slack-payload.json
+          path: slack-ts.txt
+          key: slack-ts-${{ github.run_id }}
+
+      - name: Fail if scan failed
+        if: needs.scan.result != 'success'
+        run: exit 1
