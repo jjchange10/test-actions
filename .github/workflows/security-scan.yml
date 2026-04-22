@@ -286,28 +286,28 @@ jobs:
             MAIN_MSG="${REPO_COUNT}件中${FAIL_COUNT}件のリポジトリで問題が検出されました。"
           fi
 
-          MAIN_BLOCK_TEXT=$(printf '%s\n%s' \
-            "${STATUS_ICON} *${STATUS_TEXT}*: ${MAIN_MSG}" \
-            "*トリガー*: ${TRIGGER}")
+          [ "${SCAN_RESULT}" = "success" ] && COLOR="good" || COLOR="danger"
 
-          HAS_FAILURE=false
-          [ -n "${FAILURE_TEXT}" ] && HAS_FAILURE=true
-          FAILURE_BLOCK_TEXT=$(printf '%s\n%s' "*問題が検出されたリポジトリとワークフロー:*" "${FAILURE_TEXT}")
+          TITLE="${STATUS_ICON} ${STATUS_TEXT}: ${MAIN_MSG}"
+          BODY_TEXT="*トリガー*: ${TRIGGER}"
+          if [ -n "${FAILURE_TEXT}" ]; then
+            BODY_TEXT="${BODY_TEXT}"$'\n\n'"*問題が検出されたリポジトリとワークフロー:*"$'\n'"${FAILURE_TEXT}"
+          fi
 
           jq -n \
-            --arg main "${MAIN_BLOCK_TEXT}" \
-            --arg failure "${FAILURE_BLOCK_TEXT}" \
+            --arg color "${COLOR}" \
+            --arg title "${TITLE}" \
+            --arg text "${BODY_TEXT}" \
             --arg url "${RUN_URL}" \
-            --argjson has_failure "${HAS_FAILURE}" \
-            '
-            [{type: "section", text: {type: "mrkdwn", text: $main}}] +
-            (if $has_failure then [
-              {type: "divider"},
-              {type: "section", text: {type: "mrkdwn", text: $failure}}
-            ] else [] end) +
-            [{type: "context", elements: [{type: "mrkdwn", text: ("<" + $url + "|詳細を確認する>")}]}]
-            | {blocks: .}
-            ' > slack-payload.json
+            '{
+              attachments: [{
+                color: $color,
+                title: $title,
+                title_link: $url,
+                text: $text,
+                mrkdwn_in: ["text"]
+              }]
+            }' > slack-payload.json
 
       - name: Notify Slack
         uses: slackapi/slack-github-action@v2.0.0
