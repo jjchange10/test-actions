@@ -11,7 +11,7 @@ jobs:
       - name: Send Slack notification
         id: send
         env:
-          SLACK_BOT_TOKEN: ${{ secrets.RELEASE_NOTICE_SLACK_BOT_TOKEN }}
+          SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
           SLACK_CHANNEL_ID: ${{ secrets.SLACK_CHANNEL_ID }}
         run: |
           APPROVAL_URL="https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
@@ -114,7 +114,7 @@ jobs:
 
       - name: Update Slack message
         env:
-          SLACK_BOT_TOKEN: ${{ secrets.RELEASE_NOTICE_SLACK_BOT_TOKEN }}
+          SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
           APPROVAL_RESULT: ${{ needs.wait-for-approval.result }}
         run: |
           if [ ! -f "/tmp/slack-messages/ts.txt" ] || [ ! -f "/tmp/slack-messages/channel.txt" ]; then
