@@ -212,7 +212,7 @@ jobs:
           echo "::error::セキュリティ問題が検出されました: ${REPO}"
           exit 1
 
-  # 全スキャン完了後に Slack 通知（失敗したリポジトリ一覧とワークフローパスを含む）
+  # 全スキャン完了後に Slack 通知（サマリー投稿 → スレッドに詳細返信）
   notify:
     name: "Slack Notification"
     needs: [setup, scan]
@@ -226,37 +226,89 @@ jobs:
           path: all-scan-results
         continue-on-error: true
 
-      - name: Restore Slack TS cache
-        id: restore-ts
-        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
-        with:
-          path: slack-ts.txt
-          key: slack-ts-${{ github.run_id }}
-
-      - name: Build Slack payload
+      - name: Post Slack status message
+        id: post-status
         shell: bash
         env:
+          SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
+          SLACK_CHANNEL_ID: ${{ secrets.SLACK_CHANNEL_ID }}
           SCAN_RESULT: ${{ needs.scan.result }}
-          EVENT_NAME: ${{ github.event_name }}
-          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
           REPO_COUNT: ${{ needs.setup.outputs.count }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
-          if [ "${EVENT_NAME}" = "schedule" ]; then
-            TRIGGER="スケジュール実行"
+          if [ "${SCAN_RESULT}" = "success" ]; then
+            COLOR="#36a64f"
+            TITLE="✅ Security Scan 成功"
+            SUMMARY="全${REPO_COUNT}リポジトリに問題なし"
           else
-            TRIGGER="手動実行"
+            COLOR="#E01E5A"
+            TITLE="❌ Security Scan 失敗"
+            FAIL_COUNT=$(find all-scan-results -name "result.txt" -type f 2>/dev/null | wc -l | tr -d ' ')
+            SUMMARY="${REPO_COUNT}件中${FAIL_COUNT}件で問題を検出"
           fi
 
-          FAILURE_TEXT=""
-          FAIL_COUNT=0
+          PAYLOAD=$(jq -n \
+            --arg channel "${SLACK_CHANNEL_ID}" \
+            --arg color "${COLOR}" \
+            --arg title "${TITLE}" \
+            --arg summary "${SUMMARY}" \
+            --arg url "${RUN_URL}" \
+            '{
+              channel: $channel,
+              text: $title,
+              attachments: [{
+                color: $color,
+                blocks: [
+                  {
+                    type: "section",
+                    fields: [
+                      { type: "mrkdwn", text: ("*Status:*\n" + $title) },
+                      { type: "mrkdwn", text: ("*Summary:*\n" + $summary) }
+                    ]
+                  },
+                  {
+                    type: "actions",
+                    elements: [{
+                      type: "button",
+                      text: { type: "plain_text", text: "View Run" },
+                      url: $url
+                    }]
+                  }
+                ]
+              }]
+            }')
+
+          RESPONSE=$(curl -s -X POST https://slack.com/api/chat.postMessage \
+            -H "Authorization: Bearer ${SLACK_BOT_TOKEN}" \
+            -H 'Content-Type: application/json; charset=utf-8' \
+            -d "$PAYLOAD")
+
+          OK=$(echo "$RESPONSE" | jq -r '.ok')
+          if [ "$OK" != "true" ]; then
+            echo "::error::Failed to post Slack message: $(echo "$RESPONSE" | jq -r '.error')"
+            exit 1
+          fi
+
+          TS=$(echo "$RESPONSE" | jq -r '.ts')
+          echo "ts=${TS}" >> "$GITHUB_OUTPUT"
+          echo "Status message posted. ts=${TS}"
+
+      - name: Post Slack thread reply with details
+        shell: bash
+        env:
+          SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
+          SLACK_CHANNEL_ID: ${{ secrets.SLACK_CHANNEL_ID }}
+          THREAD_TS: ${{ steps.post-status.outputs.ts }}
+          SCAN_RESULT: ${{ needs.scan.result }}
+          REPO_COUNT: ${{ needs.setup.outputs.count }}
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          [ "${EVENT_NAME}" = "schedule" ] && TRIGGER="スケジュール実行" || TRIGGER="手動実行"
 
           if [ "${SCAN_RESULT}" = "success" ]; then
-            STATUS_ICON=":white_check_mark:"
-            STATUS_TEXT="成功"
-            MAIN_MSG="全${REPO_COUNT}リポジトリのSecurity Scanが完了しました！"
+            DETAIL_TEXT="*トリガー*: ${TRIGGER}"$'\n'"全${REPO_COUNT}リポジトリに問題は検出されませんでした。"
           else
-            STATUS_ICON=":x:"
-            STATUS_TEXT="失敗"
+            DETAIL_TEXT="*トリガー*: ${TRIGGER}"$'\n\n'"*問題が検出されたリポジトリとワークフロー:*"$'\n'
 
             if [ -d "all-scan-results" ]; then
               while IFS= read -r result_file; do
@@ -264,72 +316,34 @@ jobs:
                 repo=$(grep '^repo=' "${result_file}" | head -1 | sed 's/^repo=//' || true)
                 [ -z "${repo}" ] && continue
 
-                FAIL_COUNT=$((FAIL_COUNT + 1))
                 paths=$(grep -v '^repo=' "${result_file}" | sort -u || true)
-
                 if [ -n "${paths}" ]; then
                   path_bullets=$(echo "${paths}" | sed 's/^zizmor:/    • [zizmor] /; s/^semgrep:/    • [semgrep] /')
-                  FAILURE_TEXT="${FAILURE_TEXT}*${repo}*"$'\n'"${path_bullets}"$'\n'
+                  DETAIL_TEXT="${DETAIL_TEXT}*${repo}*"$'\n'"${path_bullets}"$'\n'
                 else
-                  FAILURE_TEXT="${FAILURE_TEXT}*${repo}*"$'\n'
+                  DETAIL_TEXT="${DETAIL_TEXT}*${repo}*"$'\n'
                 fi
               done < <(find all-scan-results -name "result.txt" -type f 2>/dev/null | sort)
             fi
-
-            MAIN_MSG="${REPO_COUNT}件中${FAIL_COUNT}件のリポジトリで問題が検出されました。"
           fi
 
-          [ "${SCAN_RESULT}" = "success" ] && COLOR="good" || COLOR="danger"
+          PAYLOAD=$(jq -n \
+            --arg channel "${SLACK_CHANNEL_ID}" \
+            --arg thread_ts "${THREAD_TS}" \
+            --arg text "${DETAIL_TEXT}" \
+            '{channel: $channel, thread_ts: $thread_ts, text: $text, mrkdwn: true}')
 
-          TITLE="${STATUS_ICON} ${STATUS_TEXT}: ${MAIN_MSG}"
-          BODY_TEXT="*トリガー*: ${TRIGGER}"
-          if [ -n "${FAILURE_TEXT}" ]; then
-            BODY_TEXT="${BODY_TEXT}"$'\n\n'"*問題が検出されたリポジトリとワークフロー:*"$'\n'"${FAILURE_TEXT}"
-          fi
+          RESPONSE=$(curl -s -X POST https://slack.com/api/chat.postMessage \
+            -H "Authorization: Bearer ${SLACK_BOT_TOKEN}" \
+            -H 'Content-Type: application/json; charset=utf-8' \
+            -d "$PAYLOAD")
 
-          jq -n \
-            --arg color "${COLOR}" \
-            --arg title "${TITLE}" \
-            --arg text "${BODY_TEXT}" \
-            --arg url "${RUN_URL}" \
-            '{
-              attachments: [{
-                color: $color,
-                title: $title,
-                title_link: $url,
-                text: $text,
-                mrkdwn_in: ["text"]
-              }]
-            }' > slack-payload.json
-
-      - name: Post or Update Slack
-        shell: bash
-        env:
-          SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
-          SLACK_CHANNEL_ID: ${{ secrets.SLACK_CHANNEL_ID }}
-          CACHE_HIT: ${{ steps.restore-ts.outputs.cache-hit }}
-        run: |
-          ATTACHMENTS=$(jq -c '.attachments' slack-payload.json)
-          if [ "${CACHE_HIT}" = "true" ] && [ -f slack-ts.txt ]; then
-            TS=$(cat slack-ts.txt)
-            curl -sSf -X POST https://slack.com/api/chat.update \
-              -H "Authorization: Bearer ${SLACK_BOT_TOKEN}" \
-              -H "Content-Type: application/json" \
-              -d "{\"channel\":\"${SLACK_CHANNEL_ID}\",\"ts\":\"${TS}\",\"attachments\":${ATTACHMENTS}}"
+          OK=$(echo "$RESPONSE" | jq -r '.ok')
+          if [ "$OK" != "true" ]; then
+            echo "::warning::Failed to post thread reply: $(echo "$RESPONSE" | jq -r '.error')"
           else
-            RESPONSE=$(curl -sSf -X POST https://slack.com/api/chat.postMessage \
-              -H "Authorization: Bearer ${SLACK_BOT_TOKEN}" \
-              -H "Content-Type: application/json" \
-              -d "{\"channel\":\"${SLACK_CHANNEL_ID}\",\"attachments\":${ATTACHMENTS}}")
-            echo "${RESPONSE}" | jq -r '.ts' > slack-ts.txt
+            echo "Thread reply posted."
           fi
-
-      - name: Save Slack TS cache
-        if: steps.restore-ts.outputs.cache-hit != 'true'
-        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
-        with:
-          path: slack-ts.txt
-          key: slack-ts-${{ github.run_id }}
 
       - name: Fail if scan failed
         if: needs.scan.result != 'success'
