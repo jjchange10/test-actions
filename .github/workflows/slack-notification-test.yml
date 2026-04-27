@@ -1,0 +1,205 @@
+name: Slack Notification Test
+
+on:
+  workflow_dispatch: {}
+
+jobs:
+  # 1. Slack通知を送信し、承認ボタン付きメッセージを投稿
+  send-notification:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Send Slack notification
+        id: send
+        env:
+          SLACK_BOT_TOKEN: ${{ secrets.RELEASE_NOTICE_SLACK_BOT_TOKEN }}
+          SLACK_CHANNEL_ID: ${{ secrets.SLACK_CHANNEL_ID }}
+        run: |
+          APPROVAL_URL="https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+
+          PAYLOAD=$(cat <<EOF
+          {
+            "channel": "${SLACK_CHANNEL_ID}",
+            "text": "🔔 [TEST] 承認待ち",
+            "attachments": [
+              {
+                "color": "#FF9800",
+                "blocks": [
+                  {
+                    "type": "section",
+                    "fields": [
+                      {
+                        "type": "mrkdwn",
+                        "text": "*Repository:*\n${{ github.repository }}"
+                      },
+                      {
+                        "type": "mrkdwn",
+                        "text": "*Triggered by:*\n${{ github.actor }}"
+                      },
+                      {
+                        "type": "mrkdwn",
+                        "text": "*Run:*\n<${APPROVAL_URL}|#${{ github.run_number }}>"
+                      },
+                      {
+                        "type": "mrkdwn",
+                        "text": "*Status:*\n⏳ Waiting for approval"
+                      }
+                    ]
+                  },
+                  {
+                    "type": "actions",
+                    "elements": [
+                      {
+                        "type": "button",
+                        "text": { "type": "plain_text", "text": "Approve in GitHub Actions" },
+                        "url": "${APPROVAL_URL}",
+                        "style": "primary"
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+          EOF
+          )
+
+          RESPONSE=$(curl -s -X POST https://slack.com/api/chat.postMessage \
+            -H "Authorization: Bearer ${SLACK_BOT_TOKEN}" \
+            -H 'Content-Type: application/json; charset=utf-8' \
+            -d "$PAYLOAD")
+
+          OK=$(echo "$RESPONSE" | jq -r '.ok')
+          TS=$(echo "$RESPONSE" | jq -r '.ts')
+
+          if [ "$OK" != "true" ]; then
+            echo "::error::Failed to send Slack message: $(echo "$RESPONSE" | jq -r '.error')"
+            exit 1
+          fi
+
+          echo "Message sent. ts=${TS}"
+          mkdir -p /tmp/slack-messages
+          echo "${TS}" > /tmp/slack-messages/ts.txt
+          echo "${SLACK_CHANNEL_ID}" > /tmp/slack-messages/channel.txt
+
+      - name: Upload Slack message metadata
+        uses: actions/upload-artifact@v4
+        with:
+          name: slack-message-metadata
+          path: /tmp/slack-messages/*.txt
+          retention-days: 1
+
+  # 2. GitHub Environmentの承認を待つ（Required reviewersが設定されたEnvironmentを使用）
+  wait-for-approval:
+    runs-on: ubuntu-latest
+    needs: send-notification
+    environment:
+      name: test-approval  # GitHub上でRequired reviewersを設定したEnvironment名
+    steps:
+      - run: echo "Approved!"
+
+  # 3. 承認結果に応じてSlackメッセージを更新（承認・却下・キャンセルいずれも対応）
+  update-notification:
+    runs-on: ubuntu-latest
+    if: always() && needs.send-notification.result == 'success'
+    needs:
+      - send-notification
+      - wait-for-approval
+    steps:
+      - name: Download Slack message metadata
+        uses: actions/download-artifact@v4
+        with:
+          name: slack-message-metadata
+          path: /tmp/slack-messages
+        continue-on-error: true
+
+      - name: Update Slack message
+        env:
+          SLACK_BOT_TOKEN: ${{ secrets.RELEASE_NOTICE_SLACK_BOT_TOKEN }}
+          APPROVAL_RESULT: ${{ needs.wait-for-approval.result }}
+        run: |
+          if [ ! -f "/tmp/slack-messages/ts.txt" ] || [ ! -f "/tmp/slack-messages/channel.txt" ]; then
+            echo "Metadata not found. Skipping."
+            exit 0
+          fi
+
+          TS=$(cat /tmp/slack-messages/ts.txt)
+          CHANNEL=$(cat /tmp/slack-messages/channel.txt)
+
+          echo "Approval result: ${APPROVAL_RESULT}"
+
+          case "$APPROVAL_RESULT" in
+            success)
+              COLOR="#36a64f"
+              STATUS_TEXT="✅ Approved & Applied"
+              ;;
+            failure)
+              COLOR="#E01E5A"
+              STATUS_TEXT="❌ Rejected"
+              ;;
+            cancelled)
+              COLOR="#808080"
+              STATUS_TEXT="⛔ Cancelled"
+              ;;
+            *)
+              COLOR="#808080"
+              STATUS_TEXT="❓ Unknown (${APPROVAL_RESULT})"
+              ;;
+          esac
+
+          echo "Updating ts=${TS} → ${STATUS_TEXT}"
+
+          # 元メッセージ取得
+          HISTORY_RESPONSE=$(curl -s \
+            "https://slack.com/api/conversations.history?channel=${CHANNEL}&latest=${TS}&oldest=${TS}&inclusive=true&limit=1" \
+            -H "Authorization: Bearer ${SLACK_BOT_TOKEN}")
+
+          if [ "$(echo "$HISTORY_RESPONSE" | jq -r '.ok')" != "true" ]; then
+            echo "::warning::Failed to fetch message: $(echo "$HISTORY_RESPONSE" | jq -r '.error')"
+            exit 0
+          fi
+
+          MSG=$(echo "$HISTORY_RESPONSE" | jq '.messages[0]')
+          if [ "$MSG" = "null" ] || [ -z "$MSG" ]; then
+            echo "::warning::Message not found (ts: ${TS})"
+            exit 0
+          fi
+
+          ORIGINAL_TEXT=$(echo "$MSG" | jq -r '.text')
+
+          # colorとStatusフィールドを更新、actionsブロック（ボタン）を除去
+          UPDATED_ATTACHMENTS=$(echo "$MSG" | jq \
+            --arg color "$COLOR" \
+            --arg status "$STATUS_TEXT" \
+            '[.attachments[] |
+              .color = $color |
+              .blocks = [
+                .blocks[] |
+                select(.type != "actions") |
+                if .type == "section" then
+                  .fields = [
+                    .fields[] |
+                    if (.text | contains("*Status:*")) then
+                      .text = "*Status:*\n\($status)"
+                    else . end
+                  ]
+                else . end
+              ]
+            ]')
+
+          UPDATE_PAYLOAD=$(jq -n \
+            --arg channel "$CHANNEL" \
+            --arg ts "$TS" \
+            --arg text "$ORIGINAL_TEXT" \
+            --argjson attachments "$UPDATED_ATTACHMENTS" \
+            '{channel: $channel, ts: $ts, text: $text, attachments: $attachments}')
+
+          RESPONSE=$(curl -s -X POST https://slack.com/api/chat.update \
+            -H "Authorization: Bearer ${SLACK_BOT_TOKEN}" \
+            -H 'Content-Type: application/json; charset=utf-8' \
+            -d "$UPDATE_PAYLOAD")
+
+          if [ "$(echo "$RESPONSE" | jq -r '.ok')" != "true" ]; then
+            echo "::warning::Failed to update: $(echo "$RESPONSE" | jq -r '.error')"
+          else
+            echo "Message updated → ${STATUS_TEXT}"
+          fi
