@@ -22,7 +22,7 @@ jobs:
             "text": "🔔 [TEST] 承認待ち",
             "attachments": [
               {
-                "color": "#FF9800",
+                "color": "",
                 "blocks": [
                   {
                     "type": "section",
