@@ -1,29 +1,30 @@
-name: Issue Opened
+name: Issue Labeled
 
 on:
   issues:
-    types: [opened]
+    types: [labeled]
 
 permissions:
   issues: write
 
 jobs:
-  on-issue-opened:
+  on-issue-labeled:
     runs-on: ubuntu-latest
     steps:
       - uses: step-security/harden-runner@0634a2670c59f64b4a01f0f96f84700a4088b9f0  # v2.12.0
         with:
           egress-policy: audit
 
-      # issue のタイトル等はユーザー入力のため、スクリプトインジェクション対策として env 経由で渡す
-      - name: Show issue info
+      # issue のタイトルやラベル名はユーザー入力のため、スクリプトインジェクション対策として env 経由で渡す
+      - name: Show issue and label info
         env:
           ISSUE_NUMBER: ${{ github.event.issue.number }}
           ISSUE_TITLE: ${{ github.event.issue.title }}
-          ISSUE_AUTHOR: ${{ github.event.issue.user.login }}
           ISSUE_URL: ${{ github.event.issue.html_url }}
+          LABEL_NAME: ${{ github.event.label.name }}
+          SENDER: ${{ github.event.sender.login }}
         run: |
-          echo "Issue #${ISSUE_NUMBER} opened by @${ISSUE_AUTHOR}"
+          echo "Label '${LABEL_NAME}' added to issue #${ISSUE_NUMBER} by @${SENDER}"
           echo "Title: ${ISSUE_TITLE}"
           echo "URL:   ${ISSUE_URL}"
 
@@ -32,6 +33,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_REPO: ${{ github.repository }}
           ISSUE_NUMBER: ${{ github.event.issue.number }}
-          ISSUE_AUTHOR: ${{ github.event.issue.user.login }}
+          LABEL_NAME: ${{ github.event.label.name }}
+          SENDER: ${{ github.event.sender.login }}
         run: |
-          gh issue comment "$ISSUE_NUMBER" --body "@${ISSUE_AUTHOR} Issue を作成いただきありがとうございます！ (triggered by GitHub Actions)"
+          gh issue comment "$ISSUE_NUMBER" --body "@${SENDER} がラベル \`${LABEL_NAME}\` を付けました (triggered by GitHub Actions)"
